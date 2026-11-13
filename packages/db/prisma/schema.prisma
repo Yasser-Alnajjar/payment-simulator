@@ -56,6 +56,8 @@ model CheckoutSession {
   externalReference String? @map("external_reference")
   metadata        Json     @default("{}")
   presetScenario  String?  @map("preset_scenario")
+  /// Optional external customer id: lets the hosted page offer this customer's saved test cards.
+  customerReference String? @map("customer_reference")
   status          String   @default("open")
   expiresAt       DateTime @map("expires_at") @db.Timestamptz(6)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -72,7 +74,8 @@ model Transaction {
   id                String   @id @db.Uuid
   seq               BigInt   @unique @default(autoincrement())
   userId            String   @map("user_id") @db.Uuid
-  checkoutSessionId String   @map("checkout_session_id") @db.Uuid
+  /// NULL for a saved-card charge (no checkout session). Then payment_method_id is set (CHECK transactions_origin_check).
+  checkoutSessionId String?  @map("checkout_session_id") @db.Uuid
   amountMinor       BigInt   @map("amount_minor")
   currency          String
   status            String
@@ -84,7 +87,16 @@ model Transaction {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
   resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
-  session           CheckoutSession @relation(fields: [checkoutSessionId, userId, amountMinor, currency], references: [id, userId, amountMinor, currency], onDelete: Cascade)
+  /// Saved-card payments and charges. The FK (composite with user_id, deferrable) is raw SQL in the migration.
+  paymentMethodId   String?  @map("payment_method_id") @db.Uuid
+  customerReference String?  @map("customer_reference")
+  /// Charges only; for checkout payments the session's reference applies.
+  externalReference String?  @map("external_reference")
+  metadata          Json     @default("{}")
+  /// Display snapshot of the card used (never the number); survives deletion of the payment method.
+  cardBrand         String?  @map("card_brand")
+  cardLast4         String?  @map("card_last4")
+  session           CheckoutSession? @relation(fields: [checkoutSessionId, userId, amountMinor, currency], references: [id, userId, amountMinor, currency], onDelete: Cascade)
 
   @@map("transactions")
 }
@@ -99,9 +111,11 @@ model Event {
   subjectId String   @map("subject_id") @db.Uuid
   /// The exact serialized bytes (text, not jsonb), persisted once and returned verbatim.
   payload   String
+  /// 0 for one-shot transitions; payment-method events carry the method's version so repeatable events stay unique per change.
+  occurrence Int     @default(0)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  @@unique([userId, subjectId, type])
+  @@unique([userId, subjectId, type, occurrence], map: "events_user_subject_type_occurrence_key")
   @@map("events")
 }
 
@@ -139,4 +153,73 @@ model AuthFailureWindow {
 
   @@id([scope, bucket, windowStart])
   @@map("auth_failure_windows")
+}
+
+/// TEST cards only. Never holds a full card number or a security code: brand, last four, expiry, a keyed fingerprint and the test behavior.
+/// Soft-deleted (deleted_at) so payment history keeps its reference. Default-method and duplicate-card invariants are partial unique indexes in SQL.
+model PaymentMethod {
+  id                String    @id @db.Uuid
+  seq               BigInt    @unique @default(autoincrement())
+  userId            String    @map("user_id") @db.Uuid
+  /// External customer id supplied by the integrator (e.g. Elapsed). Not a table: customers are not a first-class entity in this simulator.
+  customerReference String    @map("customer_reference")
+  type              String    @default("card")
+  brand             String
+  last4             String
+  expMonth          Int       @map("exp_month") @db.SmallInt
+  expYear           Int       @map("exp_year") @db.SmallInt
+  cardholderName    String?   @map("cardholder_name")
+  /// HMAC-SHA256(owner, number) with a derived server key. Not reversible without the key.
+  fingerprint       String
+  testBehavior      String    @map("test_behavior")
+  /// Stored status: active | disabled (| expired). An active card past its expiry month is reported as expired at read time.
+  status            String    @default("active")
+  isDefault         Boolean   @default(false) @map("is_default")
+  version           Int       @default(1)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([id, userId])
+  @@map("payment_methods")
+}
+
+/// Hosted checkout in setup mode: collects a test card for a customer without charging anything. No amount, no payment row.
+model SetupSession {
+  id                String    @id @db.Uuid
+  seq               BigInt    @unique @default(autoincrement())
+  userId            String    @map("user_id") @db.Uuid
+  /// SHA-256 of the checkout token. The token itself is never stored here.
+  tokenHash         String    @unique @map("token_hash")
+  customerReference String    @map("customer_reference")
+  externalReference String?   @map("external_reference")
+  metadata          Json      @default("{}")
+  status            String    @default("open")
+  paymentMethodId   String?   @map("payment_method_id") @db.Uuid
+  attemptCount      Int       @default(0) @map("attempt_count")
+  lastFailureCode   String?   @map("last_failure_code")
+  expiresAt         DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([id, userId])
+  @@map("setup_sessions")
+}
+
+/// Idempotency for payment-method creation, setup-session creation and saved-card charges (the S2 table is bound to checkout sessions).
+model ApiIdempotencyKey {
+  userId      String   @map("user_id") @db.Uuid
+  scope       String
+  key         String
+  /// Fingerprint of the request WITHOUT any card data (the number is replaced by its keyed fingerprint, the security code is dropped).
+  requestHash String   @map("request_hash")
+  statusCode  Int      @map("status_code")
+  response    Json
+  /// Setup sessions only: the checkout token sealed with a purpose-derived key (AAD binds user, key and session).
+  tokenEnc    String?  @map("token_enc")
+  resourceId  String   @map("resource_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([userId, scope, key])
+  @@map("api_idempotency_keys")
 }

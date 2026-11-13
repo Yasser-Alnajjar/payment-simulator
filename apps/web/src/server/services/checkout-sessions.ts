@@ -18,6 +18,8 @@ export interface CreateSessionInput {
   metadata: Record<string, string>;
   expiresInSeconds: number;
   presetScenario: Scenario | null;
+  /** Optional external customer id; lets the hosted page offer this customer's saved test cards. */
+  customerReference?: string | null;
 }
 
 export interface CreateResult { status: number; body: ReturnType<typeof sessionDto>; replayed: boolean }
@@ -38,7 +40,7 @@ export async function createCheckoutSession(
   const expiresAt = new Date(createdAt.getTime() + input.expiresInSeconds * 1000);
   const row: CheckoutSession = {
     id, seq: 0n, userId, tokenHash, amountMinor: input.amountMinor, currency: input.currency, externalReference: input.externalReference,
-    metadata: input.metadata, presetScenario: input.presetScenario, status: "open", expiresAt, createdAt, updatedAt: createdAt,
+    metadata: input.metadata, presetScenario: input.presetScenario, customerReference: input.customerReference ?? null, status: "open", expiresAt, createdAt, updatedAt: createdAt,
   };
   const url = checkoutUrl(deps.appUrl, token);
   const body = sessionDto(row, { url });
@@ -66,7 +68,7 @@ export async function createCheckoutSession(
     await tx.checkoutSession.create({
       data: {
         id, userId, tokenHash, amountMinor: input.amountMinor, currency: input.currency, externalReference: input.externalReference,
-        metadata: input.metadata, presetScenario: input.presetScenario, status: "open", expiresAt, createdAt, updatedAt: createdAt,
+        metadata: input.metadata, presetScenario: input.presetScenario, customerReference: input.customerReference ?? null, status: "open", expiresAt, createdAt, updatedAt: createdAt,
       },
     });
     await writeAudit(tx, { userId, action: "checkout_session.created", targetType: "checkout_session", targetId: id });

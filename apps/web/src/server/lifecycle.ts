@@ -1,5 +1,5 @@
 import {
-  ACTIVE_PAYMENT_STATUSES, canTransitionPayment, canTransitionSession, formatAmount, minorToNumber, newUuid, paymentEventType, planScenario,
+  ACTIVE_PAYMENT_STATUSES, type ChargeOutcome, canTransitionPayment, canTransitionSession, formatAmount, minorToNumber, newUuid, paymentEventType, planScenario,
   sessionEventType, toPublicId, type PaymentStatus, type Scenario, type SessionStatus,
 } from "@sandbox/core";
 import type { CheckoutSession, Prisma, PrismaClient, Transaction } from "@sandbox/db";
@@ -17,13 +17,13 @@ export async function lockSession(tx: Tx, userId: string, id: string): Promise<C
   return tx.checkoutSession.findFirst({ where: { id, userId } });
 }
 
-interface EventInput { userId: string; type: string; subjectId: string; data: Record<string, unknown>; now: Date }
+export interface EventInput { userId: string; type: string; subjectId: string; data: Record<string, unknown>; now: Date; occurrence?: number }
 
 /** Persists the event in the caller's transaction. The payload text is serialized once here and never regenerated. */
-async function emitEvent(tx: Tx, e: EventInput) {
+export async function emitEvent(tx: Tx, e: EventInput) {
   const id = newUuid();
   const payload = JSON.stringify({ id: toPublicId("event", id), object: "event", type: e.type, created: e.now.toISOString(), api_version: API_VERSION, data: e.data });
-  await tx.event.create({ data: { id, userId: e.userId, type: e.type, subjectId: e.subjectId, payload, createdAt: e.now } });
+  await tx.event.create({ data: { id, userId: e.userId, type: e.type, subjectId: e.subjectId, payload, occurrence: e.occurrence ?? 0, createdAt: e.now } });
 }
 
 const sessionData = (s: CheckoutSession, status: string) => ({
@@ -56,13 +56,22 @@ export async function transitionPayment(
   if (to === "succeeded") await transitionSession(tx, s, "completed", now);
 }
 
-function paymentEventData(s: CheckoutSession, p: Pick<Transaction, "id" | "status" | "failureCode">) {
-  return { payment_id: toPublicId("payment", p.id), ...sessionData(s, p.status), failure_code: p.failureCode };
+/** Card keys are added only when a card was used, so events of simulated-outcome payments stay byte-identical to before. */
+function paymentEventData(s: CheckoutSession, p: Pick<Transaction, "id" | "status" | "failureCode"> & Partial<Pick<Transaction, "paymentMethodId" | "cardBrand" | "cardLast4">>) {
+  const card = p.cardBrand && p.cardLast4
+    ? { payment_method: p.paymentMethodId ? toPublicId("paymentMethod", p.paymentMethodId) : null, customer: s.customerReference, card: { brand: p.cardBrand, last4: p.cardLast4 } }
+    : {};
+  return { payment_id: toPublicId("payment", p.id), ...sessionData(s, p.status), failure_code: p.failureCode, ...card };
 }
 
+/** A payment made with a TEST card: the outcome comes from the card, never from the browser. */
+export interface CardUse { outcome: ChargeOutcome; paymentMethodId: string | null; customerReference: string | null; brand: string; last4: string }
+
 /** Creates a payment for an open session according to the scenario. Emits exactly one payment event, plus the session event when it succeeds. */
-export async function createPayment(tx: Tx, s: CheckoutSession, scenario: Scenario, delaySeconds: number, now: Date): Promise<Transaction> {
-  const plan = planScenario(scenario, delaySeconds);
+export async function createPayment(tx: Tx, s: CheckoutSession, scenario: Scenario, delaySeconds: number, now: Date, card?: CardUse): Promise<Transaction> {
+  const plan = card
+    ? { initial: card.outcome.status as PaymentStatus, resolveTo: null, resolveAfterSeconds: null, failureCode: card.outcome.failureCode }
+    : planScenario(scenario, delaySeconds);
   const id = newUuid();
   const terminal = plan.initial !== "pending";
   const row = await tx.transaction.create({
@@ -70,6 +79,7 @@ export async function createPayment(tx: Tx, s: CheckoutSession, scenario: Scenar
       id, userId: s.userId, checkoutSessionId: s.id, amountMinor: s.amountMinor, currency: s.currency, status: plan.initial, scenario,
       resolveAt: plan.resolveAfterSeconds === null ? null : new Date(now.getTime() + plan.resolveAfterSeconds * 1000),
       resolveTo: plan.resolveTo, failureCode: plan.failureCode, createdAt: now, updatedAt: now, resolvedAt: terminal ? now : null,
+      ...(card ? { paymentMethodId: card.paymentMethodId, customerReference: card.customerReference, cardBrand: card.brand, cardLast4: card.last4 } : {}),
     },
   });
   await emitEvent(tx, { userId: s.userId, type: paymentEventType(plan.initial), subjectId: id, data: paymentEventData(s, row), now });
@@ -141,10 +151,10 @@ export async function sweepAll(db: PrismaClient, now: Date, limit = 100): Promis
 async function dueSessions(db: PrismaClient, now: Date, limit: number, userId?: string): Promise<{ id: string; userId: string }[]> {
   const base = userId ? { userId } : {};
   const expired = await db.checkoutSession.findMany({ where: { ...base, status: "open", expiresAt: { lte: now } }, select: { id: true, userId: true }, orderBy: { expiresAt: "asc" }, take: limit });
-  const resolvable = await db.transaction.findMany({ where: { ...base, status: "pending", resolveAt: { lte: now } }, select: { checkoutSessionId: true, userId: true }, orderBy: { resolveAt: "asc" }, take: limit });
+  const resolvable = await db.transaction.findMany({ where: { ...base, status: "pending", resolveAt: { lte: now }, checkoutSessionId: { not: null } }, select: { checkoutSessionId: true, userId: true }, orderBy: { resolveAt: "asc" }, take: limit });
   const map = new Map<string, string>();
   for (const e of expired) map.set(e.id, e.userId);
-  for (const r of resolvable) map.set(r.checkoutSessionId, r.userId);
+  for (const r of resolvable) if (r.checkoutSessionId) map.set(r.checkoutSessionId, r.userId);
   return [...map].slice(0, limit).map(([id, uid]) => ({ id, userId: uid }));
 }
 const dueSessionIds = async (db: PrismaClient, now: Date, limit: number, userId: string) => (await dueSessions(db, now, limit, userId)).map((d) => d.id);

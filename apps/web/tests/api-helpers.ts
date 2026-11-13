@@ -59,6 +59,14 @@ export async function call(deps: ApiDeps, method: string, path: string, o: Opts 
   else if ((m = p.match(/^\/api\/v1\/payments\/([^/]+)$/)) && method === "GET") res = await handlers.getPayment(req, deps, decodeURIComponent(m[1]!));
   else if (p === "/api/v1/events" && method === "GET") res = await handlers.listEvents(req, deps);
   else if ((m = p.match(/^\/api\/v1\/events\/([^/]+)$/)) && method === "GET") res = await handlers.getEvent(req, deps, decodeURIComponent(m[1]!));
+  else if (p === "/api/v1/payments" && method === "POST") res = await handlers.createCharge(req, deps);
+  else if (p === "/api/v1/payment-methods" && method === "POST") res = await handlers.createPaymentMethod(req, deps);
+  else if (p === "/api/v1/payment-methods" && method === "GET") res = await handlers.listPaymentMethods(req, deps);
+  else if (p === "/api/v1/payment-methods/default" && method === "GET") res = await handlers.getDefaultPaymentMethod(req, deps);
+  else if ((m = p.match(/^\/api\/v1\/payment-methods\/([^/]+)\/default$/)) && method === "POST") res = await handlers.setDefaultPaymentMethod(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/payment-methods\/([^/]+)\/disable$/)) && method === "POST") res = await handlers.disablePaymentMethod(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/payment-methods\/([^/]+)$/)) && method === "GET") res = await handlers.getPaymentMethod(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/payment-methods\/([^/]+)$/)) && method === "DELETE") res = await handlers.deletePaymentMethod(req, deps, decodeURIComponent(m[1]!));
   else throw new Error(`no route for ${method} ${p}`);
   const text = await res.text();
   let json: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any

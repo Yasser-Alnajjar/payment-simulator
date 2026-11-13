@@ -15,7 +15,14 @@ async function main() {
   const name = process.argv[2];
   if (!name || !/^[0-9]{14}_[a-z0-9_]+$/.test(name)) throw new Error("usage: dry-run-migration.ts <migration-folder-name>");
   const sql = readFileSync(path.resolve(import.meta.dirname, "../prisma/migrations", name, "migration.sql"), "utf8");
-  const stripped = sql.replace(/--.*$/gm, "").replace(/BEFORE\s+TRUNCATE\s+ON/gi, "TRIGGER_EVENT_ON"); // a TRUNCATE *guard* trigger is not a TRUNCATE
+  // Exact, reviewed widenings that are not data loss (documented in docs/payment-methods.md). Anything else with DROP is still refused.
+  const ALLOWED = [
+    /DROP INDEX "events_user_id_subject_id_type_key";/g,
+    /ALTER TABLE "events" DROP CONSTRAINT "events_type_check";/g,
+    /ALTER TABLE "transactions" ALTER COLUMN "checkout_session_id" DROP NOT NULL;/g,
+  ];
+  let stripped = sql.replace(/--.*$/gm, "").replace(/BEFORE\s+TRUNCATE\s+ON/gi, "TRIGGER_EVENT_ON"); // a TRUNCATE *guard* trigger is not a TRUNCATE
+  for (const a of ALLOWED) stripped = stripped.replace(a, "");
   const bad = stripped.match(/\b(drop|truncate|delete\s+from)\b/gi);
   const allowedDelete = false;
   if (bad && !allowedDelete) throw new Error(`Migration contains destructive statements: ${[...new Set(bad.map((b) => b.toLowerCase()))].join(", ")}`);

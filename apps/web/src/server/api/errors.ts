@@ -1,4 +1,4 @@
-export type ApiErrorType = "authentication_error" | "invalid_request_error" | "conflict_error" | "rate_limit_error" | "idempotency_error" | "api_error";
+export type ApiErrorType = "authentication_error" | "invalid_request_error" | "conflict_error" | "rate_limit_error" | "idempotency_error" | "card_error" | "api_error";
 
 /** Public API error. `message` is always safe to show to the client; never put secrets or internal detail in it. */
 export class ApiError extends Error {

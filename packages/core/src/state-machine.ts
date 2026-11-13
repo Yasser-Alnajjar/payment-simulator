@@ -37,6 +37,11 @@ export const EVENT_TYPES = [
   "payment.succeeded",
   "payment.failed",
   "payment.cancelled",
+  "payment_method.created",
+  "payment_method.updated",
+  "payment_method.default_updated",
+  "payment_method.disabled",
+  "payment_method.deleted",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

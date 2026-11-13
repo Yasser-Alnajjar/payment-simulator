@@ -1,4 +1,4 @@
-import { formatAmount, hashSecret, toPublicId } from "@sandbox/core";
+import { effectiveStatus, formatAmount, hashSecret, toPublicId } from "@sandbox/core";
 import type { PrismaClient } from "@sandbox/db";
 import { notFound } from "../api/errors";
 import { needsSettle, settleSession } from "../lifecycle";
@@ -13,7 +13,13 @@ export interface CheckoutView {
   /** Set when the merchant fixed the scenario at session creation; the customer cannot change it. */
   presetScenario: string | null;
   expiresAt: string;
-  payment: { status: "pending" | "succeeded" | "failed" | "cancelled"; failureCode: string | null; scenario: string; resolveAt: string | null } | null;
+  payment: { status: "pending" | "succeeded" | "failed" | "cancelled"; failureCode: string | null; scenario: string; resolveAt: string | null; card: { brand: string; last4: string } | null } | null;
+  /** Customer reference of the session, when the merchant supplied one. */
+  customer: string | null;
+  /** True when the customer may pay with a test card (not allowed when the merchant fixed the outcome). */
+  cardAllowed: boolean;
+  /** The customer's saved TEST cards (safe display fields only). Empty without a customer. */
+  savedCards: { id: string; brand: string; last4: string; expMonth: number; expYear: number; status: "active" | "expired" | "disabled"; isDefault: boolean; behavior: string }[];
   /** True only when a new attempt would be accepted right now. */
   canPay: boolean;
 }
@@ -34,6 +40,9 @@ export async function getCheckoutView(db: PrismaClient, token: unknown, now: Dat
   if (await needsSettle(db, s, now)) s = (await settleSession(db, ref.userId, ref.id, now)) ?? s;
   const latest = await db.transaction.findFirst({ where: { checkoutSessionId: s.id, userId: ref.userId }, orderBy: { seq: "desc" } });
   const active = latest !== null && (latest.status === "pending" || latest.status === "succeeded");
+  const saved = s.customerReference && !s.presetScenario
+    ? await db.paymentMethod.findMany({ where: { userId: ref.userId, customerReference: s.customerReference, deletedAt: null, status: { not: "disabled" } }, orderBy: { seq: "desc" }, take: 20 })
+    : [];
   return {
     status: s.status as CheckoutView["status"],
     amount: formatAmount(s.amountMinor, s.currency),
@@ -42,8 +51,14 @@ export async function getCheckoutView(db: PrismaClient, token: unknown, now: Dat
     presetScenario: s.presetScenario,
     expiresAt: s.expiresAt.toISOString(),
     payment: latest
-      ? { status: latest.status as NonNullable<CheckoutView["payment"]>["status"], failureCode: latest.failureCode, scenario: latest.scenario, resolveAt: latest.resolveAt?.toISOString() ?? null }
+      ? {
+          status: latest.status as NonNullable<CheckoutView["payment"]>["status"], failureCode: latest.failureCode, scenario: latest.scenario, resolveAt: latest.resolveAt?.toISOString() ?? null,
+          card: latest.cardBrand && latest.cardLast4 ? { brand: latest.cardBrand, last4: latest.cardLast4 } : null,
+        }
       : null,
+    customer: s.customerReference,
+    cardAllowed: !s.presetScenario,
+    savedCards: saved.map((m) => ({ id: toPublicId("paymentMethod", m.id), brand: m.brand, last4: m.last4, expMonth: m.expMonth, expYear: m.expYear, status: effectiveStatus(m.status, m.expMonth, m.expYear, now), isDefault: m.isDefault, behavior: m.testBehavior })),
     canPay: s.status === "open" && !active,
   };
 }

@@ -1,9 +1,10 @@
 import { formatAmount, toPublicId } from "@sandbox/core";
 import type { PrismaClient } from "@sandbox/db";
-import { paymentDto, sessionDto } from "../api/dto";
+import { paymentDto, paymentMethodDto, sessionDto } from "../api/dto";
 import { sweepUser } from "../lifecycle";
 import { getCheckoutSession, listCheckoutSessions } from "./checkout-sessions";
 import { listPayments } from "./payments";
+import { getPaymentMethod, listPaymentMethods } from "./payment-methods";
 
 export type SessionRow = ReturnType<typeof sessionDto>;
 export type PaymentRow = ReturnType<typeof paymentDto>;
@@ -60,6 +61,32 @@ export async function sessionDetail(db: PrismaClient, userId: string, publicId: 
   return {
     session: sessionDto(s),
     payments: payments.map((p) => paymentDto(p, s)),
+    events: events.map((e) => ({ id: toPublicId("event", e.id), type: e.type, created: e.createdAt.toISOString() })),
+  };
+}
+
+export type MethodRow = ReturnType<typeof paymentMethodDto>;
+
+export async function methodsPage(db: PrismaClient, userId: string, now: Date, q: { after?: string; customer?: string; status?: string }): Promise<Paged<MethodRow>> {
+  const page = await listPaymentMethods(db, userId, now, { limit: 20, startingAfter: q.after, customer: q.customer, status: q.status });
+  const items = page.items.map((m) => paymentMethodDto(m, now));
+  return { items, next: page.hasMore ? items[items.length - 1]!.id : null };
+}
+
+export interface MethodDetail { method: MethodRow; payments: PaymentRow[]; events: { id: string; type: string; created: string }[] }
+
+/** Owner-scoped. Related payments are the payment attempts that used this method (charges and hosted checkout payments). */
+export async function methodDetail(db: PrismaClient, userId: string, publicId: string, now: Date): Promise<MethodDetail> {
+  const m = await getPaymentMethod(db, userId, publicId);
+  const [payments, events] = await Promise.all([
+    db.transaction.findMany({ where: { userId, paymentMethodId: m.id }, orderBy: { seq: "desc" }, take: 50 }),
+    db.event.findMany({ where: { userId, subjectId: m.id }, orderBy: { seq: "desc" }, take: 100, select: { id: true, type: true, createdAt: true } }),
+  ]);
+  const sessions = await db.checkoutSession.findMany({ where: { userId, id: { in: payments.flatMap((p) => (p.checkoutSessionId ? [p.checkoutSessionId] : [])) } } });
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  return {
+    method: paymentMethodDto(m, now),
+    payments: payments.map((p) => paymentDto(p, p.checkoutSessionId ? byId.get(p.checkoutSessionId) ?? null : null)),
     events: events.map((e) => ({ id: toPublicId("event", e.id), type: e.type, created: e.createdAt.toISOString() })),
   };
 }
