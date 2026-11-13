@@ -1,0 +1,36 @@
+{
+  "name": "@sandbox/web",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "rm -rf .next && dotenv -e ../../.env -- next dev --port 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@sandbox/core": "workspace:*",
+    "@sandbox/db": "workspace:*",
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.119.0",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.15.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "dotenv": "^17.0.0",
+    "dotenv-cli": "^11.1.0",
+    "pg": "^8.23.0",
+    "tailwindcss": "^4.3.5",
+    "typescript": "5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

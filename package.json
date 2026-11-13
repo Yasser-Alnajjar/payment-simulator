@@ -1,0 +1,16 @@
+{
+  "name": "payment-sandbox",
+  "private": true,
+  "packageManager": "pnpm@12.14.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "dev": "pnpm --filter @sandbox/web dev",
+    "db:generate": "pnpm --filter @sandbox/db generate",
+    "db:status": "pnpm --filter @sandbox/db migrate:status"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

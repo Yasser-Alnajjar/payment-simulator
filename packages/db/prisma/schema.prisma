@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ApiCredential {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// auth.users.id. The FK (ON DELETE CASCADE) is raw SQL in the migration; Prisma does not model the auth schema.
+  userId           String    @map("user_id") @db.Uuid
+  clientId         String    @unique @map("client_id")
+  /// SHA-256 hex of the client secret. The plaintext is never stored.
+  clientSecretHash String    @map("client_secret_hash")
+  /// Display-only, e.g. "sbx_sk_…a1b2".
+  clientSecretHint String    @map("client_secret_hint")
+  /// AES-256-GCM ciphertext. The signing key is only in the app environment.
+  webhookSecretEnc String    @map("webhook_secret_enc")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt       DateTime? @map("last_used_at") @db.Timestamptz(6)
+  /// NULL = active. A raw-SQL partial unique index guarantees at most one active row per user.
+  revokedAt        DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("api_credentials")
+}
+
+/// Append-only. No foreign keys: history outlives the user and the resources it describes.
+model AuditLog {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String
+  targetType String?  @map("target_type")
+  targetId   String?  @map("target_id")
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("audit_logs")
+}

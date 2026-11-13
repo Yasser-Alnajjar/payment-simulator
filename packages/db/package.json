@@ -1,0 +1,32 @@
+{
+  "name": "@sandbox/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "generate": "prisma generate",
+    "inspect": "tsx scripts/inspect-db.ts",
+    "migrate:status": "prisma migrate status",
+    "migrate:deploy": "prisma migrate deploy",
+    "typecheck": "prisma generate && tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "verify:s1": "tsx scripts/verify-s1.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "7.10.1",
+    "@prisma/client": "7.10.1",
+    "@sandbox/core": "workspace:*",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.15.0",
+    "dotenv": "^17.0.0",
+    "tsx": "^4.23.0",
+    "prisma": "7.10.1",
+    "typescript": "5.9.3",
+    "vitest": "^5.1.0"
+  }
+}
