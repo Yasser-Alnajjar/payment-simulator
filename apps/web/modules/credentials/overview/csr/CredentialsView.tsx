@@ -4,16 +4,15 @@ import { useState, useTransition } from "react";
 import { Actions } from "@/actions/client";
 import type { ActionResult } from "@/lib/types/common";
 import type { CredentialView, IssuedCredential } from "@/lib/types/credential";
-import { Button, Card, SandboxBanner } from "@components/ui/form";
+import { Button, Card } from "@components/ui/form";
 import { IssuedSecrets } from "./IssuedSecrets";
 
 interface Props {
   credentials: CredentialView[];
-  email: string;
   emailVerified: boolean;
 }
 
-export function CredentialsView({ credentials, email, emailVerified }: Props) {
+export function CredentialsView({ credentials, emailVerified }: Props) {
   const [issued, setIssued] = useState<IssuedCredential>();
   const [error, setError] = useState<string>();
   const [pending, start] = useTransition();
@@ -30,15 +29,7 @@ export function CredentialsView({ credentials, email, emailVerified }: Props) {
 
   return (
     <>
-      <SandboxBanner />
-      <header className="flex items-center justify-between border-b border-neutral-200 bg-white px-6 py-3">
-        <span className="font-semibold">Payment Sandbox</span>
-        <form action={Actions.Auth.signOut} className="flex items-center gap-3 text-sm">
-          <span className="text-neutral-500">{email}</span>
-          <Button variant="ghost" type="submit">Sign out</Button>
-        </form>
-      </header>
-      <main className="mx-auto max-w-3xl space-y-6 p-6">
+      <div className="max-w-3xl space-y-6">
         {!emailVerified && (
           <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-900">Verify your email address to create or manage credentials.</p>
         )}
@@ -77,7 +68,7 @@ export function CredentialsView({ credentials, email, emailVerified }: Props) {
             </ul>
           </Card>
         )}
-      </main>
+      </div>
     </>
   );
 }

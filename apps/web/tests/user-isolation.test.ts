@@ -7,7 +7,7 @@ import { createTestDb, DB_TESTS_ENABLED } from "./harness";
 
 const KEY = randomBytes(32).toString("base64");
 
-describe.skipIf(!DB_TESTS_ENABLED)("user ownership, credentials and audit (real Postgres)", () => {
+describe.skipIf(!DB_TESTS_ENABLED)("user ownership, credentials and audit (Hosted Supabase)", () => {
   let t: Awaited<ReturnType<typeof createTestDb>>;
   beforeAll(async () => { t = await createTestDb(); });
   afterAll(async () => { await t?.close(); });
@@ -98,9 +98,11 @@ describe.skipIf(!DB_TESTS_ENABLED)("user ownership, credentials and audit (real 
     const logs = await t.prisma.auditLog.findMany({ where: { userId: u.id } });
     expect(logs.map((l) => l.action).sort()).toEqual(["credential.created", "credential.rotated"]);
     expect(JSON.stringify(logs)).not.toMatch(/sbx_sk_|whsec_/);
-    await expect(t.sql("UPDATE audit_logs SET action = 'x'")).rejects.toThrow(/append-only/);
-    await expect(t.sql("DELETE FROM audit_logs")).rejects.toThrow(/append-only/);
-    await expect(t.sql("TRUNCATE audit_logs")).rejects.toThrow(/append-only/);
+    await expect(t.sql("UPDATE audit_logs SET action = 'x' WHERE user_id = $1", [u.id])).rejects.toThrow(/append-only/);
+    await expect(t.sql("DELETE FROM audit_logs WHERE user_id = $1", [u.id])).rejects.toThrow(/append-only/);
+    // TRUNCATE is never executed against the shared hosted database; its guard is asserted through the catalog instead.
+    const trunc = await t.sql("select tgenabled from pg_trigger where tgrelid = 'public.audit_logs'::regclass and tgname = 'audit_logs_guard_truncate'");
+    expect(trunc.rows).toEqual([{ tgenabled: "O" }]);
     await expect(t.prisma.auditLog.deleteMany({ where: { userId: u.id } })).rejects.toThrow();
     expect(await t.prisma.auditLog.count({ where: { userId: u.id } })).toBe(2);
   });
@@ -119,7 +121,8 @@ describe.skipIf(!DB_TESTS_ENABLED)("user ownership, credentials and audit (real 
     const idx = await t.sql("select indexdef from pg_indexes where schemaname = current_schema() and indexname = 'api_credentials_one_active_per_user'");
     expect(idx.rows[0].indexdef).toMatch(/UNIQUE.*\(user_id\).*WHERE.*revoked_at IS NULL/s);
     const fks = await t.sql("select conrelid::regclass::text as tbl, confdeltype from pg_constraint where contype = 'f' and connamespace = current_schema()::regnamespace");
-    expect(fks.rows).toEqual([{ tbl: "api_credentials", confdeltype: "c" }]);
+    expect(fks.rows).toContainEqual({ tbl: "api_credentials", confdeltype: "c" });
+    expect(fks.rows.some((r) => r.tbl === "audit_logs")).toBe(false);
     const rls = await t.sql("select relname, relrowsecurity from pg_class where relnamespace = current_schema()::regnamespace and relkind = 'r' order by 1");
     expect(rls.rows.every((r) => r.relrowsecurity === true)).toBe(true);
     const fn = await t.sql("select proconfig from pg_proc where proname = 'sandbox_audit_logs_guard' and pronamespace = current_schema()::regnamespace");

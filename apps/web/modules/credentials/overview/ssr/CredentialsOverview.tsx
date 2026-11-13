@@ -1,12 +1,12 @@
-import { redirect } from "next/navigation";
 import { Actions } from "@/actions";
-import { getSessionUser } from "@/server/session";
+import { DashboardFrame } from "../../../dashboard/shell";
 import { CredentialsView } from "../csr/CredentialsView";
 
-export const CredentialsOverview = async () => {
-  const user = await getSessionUser();
-  if (!user) redirect("/login");
-  const res = await Actions.Credentials.getCredentials();
-  const credentials = res.ok ? res.data : [];
-  return <CredentialsView credentials={credentials} email={user.email} emailVerified={user.emailVerified} />;
-};
+export const CredentialsOverview = async () => (
+  <DashboardFrame>
+    {async (user) => {
+      const res = await Actions.Credentials.getCredentials();
+      return <CredentialsView credentials={res.ok ? res.data : []} emailVerified={user.emailVerified} />;
+    }}
+  </DashboardFrame>
+);

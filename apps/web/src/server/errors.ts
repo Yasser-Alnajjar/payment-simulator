@@ -6,3 +6,6 @@ export class AppError extends Error {
     super(message);
   }
 }
+
+/** Service-layer errors carry client-safe messages; re-exported so dashboard actions can recognise them without importing the API pipeline. */
+export { ApiError } from "./api/errors";

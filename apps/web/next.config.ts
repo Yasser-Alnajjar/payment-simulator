@@ -13,9 +13,6 @@ const config: NextConfig = {
   transpilePackages: ["@sandbox/core", "@sandbox/db"],
   serverExternalPackages: ["pg"],
   poweredByHeader: false,
-  async redirects() {
-    return [{ source: "/", destination: "/credentials", permanent: false }];
-  },
   async headers() {
     return [
       {
@@ -24,6 +21,15 @@ const config: NextConfig = {
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+      // The checkout token is in the URL: never leak it through Referer, never cache the page.
+      {
+        source: "/checkout/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
         ],
       },
     ];

@@ -2,6 +2,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "./generated/client";
 
 export * from "./generated/client";
+export * from "./identity";
 
 const globalForPrisma = globalThis as unknown as { __prisma?: PrismaClient };
 
@@ -12,7 +13,7 @@ export function getPrisma(connectionString = process.env.DATABASE_URL): PrismaCl
   return (globalForPrisma.__prisma ??= new PrismaClient({ adapter: new PrismaPg({ connectionString }) }));
 }
 
-/** Explicit factory (used by the worker and by test harnesses that target a throwaway schema). */
-export function createPrismaClient(connectionString: string, schema?: string): PrismaClient {
-  return new PrismaClient({ adapter: new PrismaPg({ connectionString }, schema ? { schema } : undefined) });
+/** Explicit factory (worker and test harness). `max` caps the connection pool. */
+export function createPrismaClient(connectionString: string, opts: { schema?: string; max?: number } = {}): PrismaClient {
+  return new PrismaClient({ adapter: new PrismaPg({ connectionString, ...(opts.max ? { max: opts.max } : {}) }, opts.schema ? { schema: opts.schema } : undefined) });
 }

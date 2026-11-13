@@ -3,7 +3,9 @@
 ## Account deletion
 The app has no delete-account feature. When a user is deleted in Supabase Auth (dashboard or Admin API), PostgreSQL cascades:
 - `api_credentials.user_id → auth.users.id ON DELETE CASCADE`: the user's credentials are removed.
-- Future user-owned tables (checkout sessions, transactions, events, webhook endpoints/deliveries) hold only sandbox test data with no retention value. **Policy:** each gets `user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE`, and child tables cascade from their parents so the chain deletes cleanly. A new owned table without that FK requires an explicit written exception in its migration.
+- S2 tables `checkout_sessions`, `transactions`, `events`, `idempotency_keys` and `api_rate_limits` each carry `user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE` (transactions and idempotency keys also cascade from their session by composite FK). No immutability trigger blocks DELETE on them (events are UPDATE/TRUNCATE-immutable only). Verified by the read-only `verify:s2` script and a hosted integration test.
+- Documented exception: `auth_failure_windows` is not user-owned (pre-authentication abuse counters keyed by hashes of an address or client id; no personal data) and expires by time.
+- Future user-owned tables (webhook endpoints/deliveries) hold only sandbox test data with no retention value. **Policy:** each gets `user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE`, and child tables cascade from their parents so the chain deletes cleanly. A new owned table without that FK requires an explicit written exception in its migration.
 - Checklist query for every phase (expect no rows other than `audit_logs`):
 ```sql
 select c.relname from pg_class c

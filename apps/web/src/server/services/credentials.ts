@@ -2,6 +2,10 @@ import { encryptSecret, generateCredentials, secretHint } from "@sandbox/core";
 import type { ApiCredential, PrismaClient } from "@sandbox/db";
 import { writeAudit } from "../audit";
 import { AppError } from "../errors";
+import { isUniqueViolation as isUniqueViolationOn } from "../db-errors";
+
+/** Generous interactive-transaction limits: the hosted database is across a network and the default 5 s is easy to exceed under load. */
+const TX_OPTIONS = { timeout: 15_000, maxWait: 15_000 } as const;
 import type { CredentialView, IssuedCredential } from "@/lib/types/credential";
 
 /** Columns that are safe to read. The secret hash and encrypted webhook secret are never selected by read paths. */
@@ -23,19 +27,7 @@ export function toCredentialView(c: SafeRow): CredentialView {
   };
 }
 
-/** True for PostgreSQL unique violations (23505) as surfaced by Prisma (P2002) or the pg driver adapter. */
-export function isUniqueViolation(e: unknown): boolean {
-  const seen = new Set<unknown>();
-  for (let cur: unknown = e; cur && typeof cur === "object" && !seen.has(cur); ) {
-    seen.add(cur);
-    const o = cur as { code?: unknown; message?: unknown; cause?: unknown; meta?: { driverAdapterError?: { cause?: { kind?: unknown } } } };
-    if (o.code === "P2002" || o.code === "23505") return true;
-    if (o.meta?.driverAdapterError?.cause?.kind === "UniqueConstraintViolation") return true;
-    if (typeof o.message === "string" && o.message.includes(ACTIVE_CONSTRAINT)) return true;
-    cur = o.cause;
-  }
-  return false;
-}
+export const isUniqueViolation = (e: unknown): boolean => isUniqueViolationOn(e, ACTIVE_CONSTRAINT);
 
 function issue(userId: string, encKey: string) {
   const g = generateCredentials();
@@ -68,7 +60,7 @@ export function createCredential(db: PrismaClient, userId: string, encKey: strin
       const row = await tx.apiCredential.create({ data, select: SAFE_SELECT });
       await writeAudit(tx, { userId, action: "credential.created", targetType: "api_credential", targetId: row.id });
       return { credential: toCredentialView(row), clientSecret: g.clientSecret, webhookSecret: g.webhookSecret };
-    }),
+    }, TX_OPTIONS),
   );
 }
 
@@ -85,7 +77,7 @@ export function rotateCredential(db: PrismaClient, userId: string, credentialId:
       const row = await tx.apiCredential.create({ data, select: SAFE_SELECT });
       await writeAudit(tx, { userId, action: "credential.rotated", targetType: "api_credential", targetId: row.id, metadata: { replaced: credentialId } });
       return { credential: toCredentialView(row), clientSecret: g.clientSecret, webhookSecret: g.webhookSecret };
-    }),
+    }, TX_OPTIONS),
   );
 }
 
@@ -94,7 +86,7 @@ export async function revokeCredential(db: PrismaClient, userId: string, credent
     const res = await tx.apiCredential.updateMany({ where: { id: credentialId, userId, revokedAt: null }, data: { revokedAt: new Date() } });
     if (res.count !== 1) throw new AppError("not_found", "Credential not found or already revoked");
     await writeAudit(tx, { userId, action: "credential.revoked", targetType: "api_credential", targetId: credentialId });
-  });
+  }, TX_OPTIONS);
 }
 
 export async function listCredentials(db: PrismaClient, userId: string): Promise<CredentialView[]> {

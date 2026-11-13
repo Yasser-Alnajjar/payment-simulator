@@ -17,8 +17,25 @@ Two tables, both keyed by `user_id` = `auth.users.id`: `api_credentials` (FK to 
 ## Inspection result (read-only, done)
 PostgreSQL 17.11, connected as `postgres` (not superuser, `BYPASSRLS`, so Prisma bypasses RLS and the application's `user_id` filters are the isolation). `public` is empty; 0 Auth users; no name collisions. Default privileges grant `anon`/`authenticated`/`service_role` full rights on new objects created by `postgres` in `public`, hence the pre-migration hardening.
 
+## Historical verification record (2026-11-13)
+These are results reported by the operator from the S1 completion work on 2026-11-13. They are **historical verification results, not a new live database inspection**; S2 re-verifies live state read-only before any write.
+
+| Item | Result |
+|---|---|
+| PostgreSQL | 17.11 |
+| Auth users | 1 (the operator's real account; must never be modified or deleted) |
+| `api_credentials` | 0 rows |
+| `audit_logs` | 45 rows (immutable historical S1 test artifacts) |
+| Orphaned audit user ids | 26 (test users already deleted; audit rows keep their `user_id` by design) |
+| S1 migration `20261113000000_s1_foundation` | Applied |
+| Default-privilege hardening (pre-migration SQL) | Applied |
+| `_prisma_migrations` RLS and Data API revocations | Applied |
+| S1 schema verification (`verify:s1`) | 10/10 passed |
+| PostgreSQL integration tests | 10/10 passed |
+
 ## Procedure (historical; this is how S1 was to be applied)
-> **Status correction.** This section originally said nothing had been applied. S1 is now complete: the S1 migration is applied to the Hosted project and the real signup and email-verification flow was tested by the operator (statement of record, 2026-11-13; hosted-dev test mode in `apps/web/tests/harness.ts` also requires the S1 tables to exist). Exact row counts and the current contents of `api_credentials`, `audit_logs` and `auth.users` are **not recorded in any document**; measure them with the read-only `verify-s1`/inspect scripts before relying on them. Hosted migrations and SQL mutations still need separate explicit approval each time.
+> **Status correction.** This section originally said nothing had been applied. That is obsolete: S1 is complete and applied (see the historical record below).
+
 1. `pnpm --filter @sandbox/db inspect` (read-only; forced `default_transaction_read_only`).
 2. After explicit approval: pre-migration default-privilege SQL (`docs/S1-revised-plan.md` §4).
 3. After explicit approval: `pnpm --filter @sandbox/db migrate:deploy` (never `migrate dev`/`reset`).

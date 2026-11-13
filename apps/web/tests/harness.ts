@@ -1,145 +1,143 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { config } from "dotenv";
 import pg from "pg";
-import { createPrismaClient } from "@sandbox/db";
+import { createPrismaClient, EXPECTED_PROJECT_REF, verifyHostedIdentity, type IdentityReport } from "@sandbox/db";
+import { assertSafeSql, MAX_TEST_USERS_PER_RUN, resolveTarget, testEmail } from "./harness-safety";
 
 /**
- * Real-Postgres harness. Two mutually exclusive modes:
+ * Hosted-database harness (rule R-DB-1: Hosted Supabase only; there is no local, Docker or disposable database).
  *
- * 1. DISPOSABLE (default): TEST_DATABASE_URL. Refuses the primary Supabase project outright and any Supabase host
- *    unless ALLOW_SUPABASE_TEST_DB=1. Applies the real migration files into a throwaway schema `sbx_test_<random>`
- *    and drops only that schema (plus a stub `auth` schema, only if this run created it).
- *
- * 2. HOSTED DEV (explicit, narrowly scoped): only when SANDBOX_TEST_TARGET equals HOSTED_DEV_FLAG exactly.
- *    Runs against the already-migrated `public` schema of the dev project via DIRECT_URL. Creates no schemas and
- *    drops nothing. Safeguards: aborts unless api_credentials is empty and audit_logs holds exactly SANDBOX_TEST_EXPECT_AUDIT_ROWS rows (default 0), records the existing
- *    auth.users ids + stable fingerprints and verifies at the end that they are unchanged, deletes ONLY the test
- *    users it created. Audit rows written by tests are immutable and remain (accepted for this dev database).
- *
- * Anything else, including a bare TEST_DATABASE_URL pointing at the primary project, is refused.
+ * Before ANY write it: (1) requires the explicit target flag AND the declared project ref, (2) verifies the live database
+ * identity with read-only queries (project ref from the connection, database name, PostgreSQL 17, Supabase objects, S1/S2 migrations),
+ * (3) takes a database-wide advisory lock so two runs cannot interfere, and (4) snapshots the pre-existing rows.
+ * Verification uses a connection that is forced read-only; writes use a separate connection.
+ * Test users are rows in auth.users tagged sbx-test-<runId>-<n>@sbx-test.invalid and recorded in a gitignored manifest BEFORE insertion.
+ * Cleanup deletes only those exact ids with the exact tag; pre-existing data is fingerprinted before and verified after.
+ * The harness issues no schema changes and no table-wide deletes; `sql()` additionally rejects such statements.
+ * Audit rows written by tests are immutable by design and remain; the run reports how many it created.
  */
-export const TEST_DB_URL = process.env.TEST_DATABASE_URL;
-export const HOSTED_DEV_FLAG = "hosted-dev-s1-2026-11-13";
-const PRIMARY_REF = "yxyhgelnenqeulzxukrc";
+export const DB_TESTS_ENABLED = process.env.SANDBOX_TEST_TARGET !== undefined;
+const LOCK_KEY = 7_428_190_331n; // arbitrary constant, database-wide advisory lock for "a test run is active"
+const MANIFEST_DIR = path.resolve(__dirname, "../.sbx-test-runs");
+const POOL_MAX = 4;
 
-export const HOSTED_DEV_ENABLED = process.env.SANDBOX_TEST_TARGET === HOSTED_DEV_FLAG;
-export const DB_TESTS_ENABLED = !!TEST_DB_URL || HOSTED_DEV_ENABLED;
-
-export function assertDisposable(url: string, env: Record<string, string | undefined> = process.env): void {
-  if (url.includes(PRIMARY_REF)) throw new Error("Refusing to run tests against the primary Supabase project");
-  const host = new URL(url).hostname;
-  if (/supabase\.(co|com)$/i.test(host) && env.ALLOW_SUPABASE_TEST_DB !== "1") {
-    throw new Error("Refusing a Supabase host for tests unless ALLOW_SUPABASE_TEST_DB=1 (use a dedicated test-only project)");
-  }
-}
-
-/** Pure decision function so the default protection is unit-tested. */
-export function resolveTarget(env: Record<string, string | undefined>): "disposable" | "hosted-dev" {
-  if (env.SANDBOX_TEST_TARGET !== undefined) {
-    if (env.SANDBOX_TEST_TARGET !== HOSTED_DEV_FLAG) throw new Error("Unrecognised SANDBOX_TEST_TARGET; refusing to run");
-    if (env.TEST_DATABASE_URL) throw new Error("Set either TEST_DATABASE_URL or SANDBOX_TEST_TARGET, not both");
-    return "hosted-dev";
-  }
-  if (!env.TEST_DATABASE_URL) throw new Error("TEST_DATABASE_URL not set");
-  assertDisposable(env.TEST_DATABASE_URL, env);
-  return "disposable";
-}
-
-type Harness = {
+export interface Harness {
   prisma: ReturnType<typeof createPrismaClient>;
-  schema: string;
+  runId: string;
+  identity: IdentityReport;
+  /** Guarded raw SQL on the write connection. */
   sql: (text: string, params?: unknown[]) => Promise<pg.QueryResult>;
   user: () => Promise<{ id: string }>;
   deleteAuthUser: (id: string) => Promise<void>;
   close: () => Promise<void>;
+}
+
+const FINGERPRINT = {
+  authUsers: "select id::text as id, md5(concat_ws('|', id, email, created_at, encrypted_password, email_confirmed_at, raw_app_meta_data)) as fp from auth.users order by id",
 };
 
-export async function createTestDb(): Promise<Harness> {
-  return resolveTarget(process.env) === "hosted-dev" ? createHostedDevDb() : createDisposableDb();
-}
-
-async function createDisposableDb(): Promise<Harness> {
-  const url = process.env.TEST_DATABASE_URL!;
-  const schema = `sbx_test_${randomBytes(6).toString("hex")}`;
-  const client = new pg.Client({ connectionString: url });
-  await client.connect();
-  const hadAuth = (await client.query("select to_regclass('auth.users') as t")).rows[0].t !== null;
-  if (!hadAuth) await client.query("CREATE SCHEMA IF NOT EXISTS auth; CREATE TABLE auth.users (id uuid PRIMARY KEY)");
-  await client.query(`CREATE SCHEMA "${schema}"`);
-  await client.query(`SET search_path TO "${schema}"`);
-  const migDir = path.resolve(__dirname, "../../../packages/db/prisma/migrations");
-  for (const d of readdirSync(migDir).filter((n) => /^\d/.test(n)).sort()) {
-    await client.query(readFileSync(path.join(migDir, d, "migration.sql"), "utf8"));
-  }
-  const prisma = createPrismaClient(url, schema);
-  return {
-    prisma,
-    schema,
-    sql: (text, params = []) => client.query(text, params),
-    async user() {
-      const id = randomUUID();
-      await client.query("INSERT INTO auth.users (id) VALUES ($1)", [id]);
-      return { id };
-    },
-    async deleteAuthUser(id) {
-      await client.query("DELETE FROM auth.users WHERE id = $1", [id]);
-    },
-    async close() {
-      await prisma.$disconnect();
-      await client.query(`DROP SCHEMA "${schema}" CASCADE`);
-      if (!hadAuth) await client.query("DROP SCHEMA auth CASCADE");
-      await client.end();
-    },
-  };
-}
-
-const STABLE_SQL = "select id::text as id, md5(concat_ws('|', id, email, created_at, encrypted_password, email_confirmed_at, raw_app_meta_data)) as fp from auth.users order by id";
-
-async function createHostedDevDb(): Promise<Harness> {
+export async function createTestDb(opts: { requireS2?: boolean } = {}): Promise<Harness> {
   config({ path: path.resolve(__dirname, "../../../.env"), quiet: true });
+  resolveTarget(process.env);
   const url = process.env.DIRECT_URL;
   if (!url) throw new Error("DIRECT_URL is not set");
-  if (new URL(url).port !== "5432") throw new Error("Hosted dev tests must use the session pooler / direct connection (port 5432)");
 
-  const client = new pg.Client({ connectionString: url });
-  await client.connect();
-  const present = (await client.query("select to_regclass('public.api_credentials') a, to_regclass('public.audit_logs') b")).rows[0];
-  if (!present.a || !present.b) throw new Error("S1 migration is not applied; refusing to run");
-  // Immutable audit rows from earlier test runs are expected; the operator states the exact number (default 0).
-  const expected: Record<string, number> = { api_credentials: 0, audit_logs: Number(process.env.SANDBOX_TEST_EXPECT_AUDIT_ROWS ?? 0) };
-  for (const [t, want] of Object.entries(expected)) {
-    const n = (await client.query(`select count(*)::int n from public.${t}`)).rows[0].n as number;
-    if (n !== want) throw new Error(`Refusing to run: public.${t} contains ${n} row(s), expected ${want}`);
+  const reader = new pg.Client({ connectionString: url });
+  await reader.connect();
+  await reader.query("SET default_transaction_read_only = on");
+  let writer: pg.Client | undefined;
+  try {
+    const identity = await verifyHostedIdentity(reader, { url, declaredRef: process.env.SANDBOX_TEST_EXPECTED_REF, requireS2: opts.requireS2 ?? true });
+    if (identity.projectRef !== EXPECTED_PROJECT_REF) throw new Error("Identity mismatch");
+
+    writer = new pg.Client({ connectionString: url });
+    await writer.connect();
+    const locked = (await writer.query("select pg_try_advisory_lock($1::bigint) as ok", [LOCK_KEY.toString()])).rows[0].ok;
+    if (!locked) throw new Error("Another test run holds the database test lock; refusing to run in parallel");
+
+    // Snapshot pre-existing rows (read-only connection).
+    const baseUsers = (await reader.query(FINGERPRINT.authUsers)).rows as { id: string; fp: string }[];
+    const baseCreds = (await reader.query("select id::text as id, md5(t::text) as fp from public.api_credentials t order by id")).rows as { id: string; fp: string }[];
+    // Non-secret columns only, to explain a mismatch (e.g. the operator used the dashboard while the run was active).
+    const credCols = "id::text as id, created_at, last_used_at, revoked_at, expires_at";
+    const baseCredView = (await reader.query(`select ${credCols} from public.api_credentials order by id`)).rows as Record<string, unknown>[];
+    const baseAudit = (await reader.query("select id::text as id from public.audit_logs order by id")).rows.map((r) => r.id as string);
+
+    const runId = randomBytes(6).toString("hex");
+    const created: { id: string; email: string }[] = [];
+    mkdirSync(MANIFEST_DIR, { recursive: true });
+    const manifest = path.join(MANIFEST_DIR, `${runId}.json`);
+    const persist = () => writeFileSync(manifest, JSON.stringify({ runId, users: created }));
+    persist();
+    const prisma = createPrismaClient(url, { max: POOL_MAX });
+    const w = writer;
+
+    return {
+      prisma,
+      runId,
+      identity,
+      sql: (text, params = []) => { assertSafeSql(text); return w.query(text, params); },
+      async user() {
+        if (created.length >= MAX_TEST_USERS_PER_RUN) throw new Error("Too many test users in one run");
+        const id = randomUUID();
+        const email = testEmail(runId, created.length + 1);
+        created.push({ id, email });
+        persist(); // write-ahead: the manifest knows the user before the row exists
+        await w.query("INSERT INTO auth.users (id, email) VALUES ($1, $2)", [id, email]);
+        return { id };
+      },
+      async deleteAuthUser(id) {
+        const u = created.find((c) => c.id === id);
+        if (!u) throw new Error("Refusing to delete an auth user this run did not create");
+        await w.query("DELETE FROM auth.users WHERE id = $1 AND email = $2", [u.id, u.email]);
+      },
+      async close() {
+        await prisma.$disconnect();
+        const ids = created.map((c) => c.id);
+        const emails = created.map((c) => c.email);
+        let auditCreated = 0;
+        let problem: string | undefined;
+        try {
+          if (ids.length) {
+            auditCreated = (await w.query("select count(*)::int n from public.audit_logs where user_id = any($1::uuid[])", [ids])).rows[0].n;
+            await w.query("DELETE FROM auth.users WHERE id = ANY($1::uuid[]) AND email = ANY($2::text[])", [ids, emails]);
+          }
+          // Everything this run created must be gone (children cascade); everything that existed must be untouched.
+          const leftover = (await reader.query(
+            `select (select count(*) from auth.users where id = any($1::uuid[])) u,
+                    (select count(*) from public.api_credentials where user_id = any($1::uuid[])) c,
+                    (select count(*) from public.checkout_sessions where user_id = any($1::uuid[])) s,
+                    (select count(*) from public.events where user_id = any($1::uuid[])) e`,
+            [ids],
+          )).rows[0];
+          if (Object.values(leftover).some((n) => Number(n) !== 0)) problem = `leftover test rows: ${JSON.stringify(leftover)}`;
+          const bi = baseUsers.map((u) => u.id);
+          const usersNow = (await reader.query(FINGERPRINT.authUsers.replace("from auth.users", "from auth.users where id = any($1::uuid[])"), [bi])).rows as { id: string; fp: string }[];
+          if (JSON.stringify(usersNow) !== JSON.stringify(baseUsers)) problem = "pre-existing auth users changed";
+          const credsNow = (await reader.query("select id::text as id, md5(t::text) as fp from public.api_credentials t where id = any($1::uuid[]) order by id", [baseCreds.map((c) => c.id)])).rows;
+          if (JSON.stringify(credsNow) !== JSON.stringify(baseCreds)) {
+            const view = (await reader.query(`select ${credCols} from public.api_credentials where id = any($1::uuid[]) order by id`, [baseCreds.map((c) => c.id)])).rows as Record<string, unknown>[];
+            const changed = new Set<string>();
+            for (const b of baseCredView) { const n = view.find((v) => v.id === b.id); for (const k of Object.keys(b)) if (!n || JSON.stringify(n[k]) !== JSON.stringify(b[k])) changed.add(k); }
+            problem = `pre-existing api_credentials changed (columns: ${[...changed].join(", ") || "secret columns"}). The harness never writes to them; if the operator used the dashboard while the run was active, re-run without touching the app`;
+          }
+          const auditNow = (await reader.query("select count(*)::int n from public.audit_logs where id = any($1::uuid[])", [baseAudit])).rows[0].n;
+          if (auditNow !== baseAudit.length) problem = "pre-existing audit_logs rows missing";
+        } finally {
+          await w.query("select pg_advisory_unlock($1::bigint)", [LOCK_KEY.toString()]).catch(() => undefined);
+          await w.end().catch(() => undefined);
+          await reader.end().catch(() => undefined);
+        }
+        if (problem) throw new Error(`[harness] ${problem}; manifest kept at ${path.relative(process.cwd(), manifest)}`);
+        rmSync(manifest, { force: true });
+        console.log(`[harness] run ${runId}: ${created.length} test user(s) created and removed; ${auditCreated} immutable audit row(s) remain; ${baseUsers.length} pre-existing auth user(s), ${baseCreds.length} credential(s), ${baseAudit.length} audit row(s) verified unchanged`);
+      },
+    };
+  } catch (e) {
+    await writer?.end().catch(() => undefined);
+    await reader.end().catch(() => undefined);
+    throw e;
   }
-  const baseline = (await client.query(STABLE_SQL)).rows as { id: string; fp: string }[];
-  const created: string[] = [];
-  const prisma = createPrismaClient(url);
-
-  return {
-    prisma,
-    schema: "public",
-    sql: (text, params = []) => client.query(text, params),
-    async user() {
-      const id = randomUUID();
-      await client.query("INSERT INTO auth.users (id) VALUES ($1)", [id]);
-      created.push(id);
-      return { id };
-    },
-    async deleteAuthUser(id) {
-      if (!created.includes(id)) throw new Error("Refusing to delete an auth user this run did not create");
-      await client.query("DELETE FROM auth.users WHERE id = $1", [id]);
-    },
-    async close() {
-      await prisma.$disconnect();
-      // Delete ONLY users created by this run (their credentials cascade). Audit rows are immutable and stay.
-      if (created.length) await client.query("DELETE FROM auth.users WHERE id = ANY($1::uuid[])", [created]);
-      const after = (await client.query(STABLE_SQL)).rows as { id: string; fp: string }[];
-      await client.end();
-      const same = JSON.stringify(after) === JSON.stringify(baseline);
-      if (!same) throw new Error("Pre-existing auth users changed during the run!");
-      console.log(`[harness] test users created and removed: ${created.length}; pre-existing auth users unchanged: ${baseline.length}`);
-    },
-  };
 }

@@ -45,3 +45,11 @@ export function verifySecret(presented: string, storedHash: string): boolean {
 export function secretHint(secret: string): string {
   return `${secret.slice(0, secret.indexOf("_", 4) + 1)}…${secret.slice(-4)}`;
 }
+
+const CHECKOUT_TOKEN_PREFIX = "sbx_cs_";
+
+/** Checkout token: 256-bit random, shown only in the checkout URL; only its SHA-256 is stored. */
+export function generateCheckoutToken(): { token: string; tokenHash: string } {
+  const token = CHECKOUT_TOKEN_PREFIX + b64url(32);
+  return { token, tokenHash: hashSecret(token) };
+}

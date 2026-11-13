@@ -1,1 +1,23 @@
 @import "tailwindcss";
+
+/* Dark mode: follows the OS setting. Utilities read these theme variables, so remapping them (unlayered, so it wins)
+   darkens every page without touching component classes. The neutral scale is inverted; `white` becomes the card surface. */
+:root { color-scheme: light dark; }
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-white: #171717;
+    --color-neutral-50: #0a0a0a;
+    --color-neutral-100: #171717;
+    --color-neutral-200: #262626;
+    --color-neutral-300: #404040;
+    --color-neutral-400: #737373;
+    --color-neutral-500: #a3a3a3;
+    --color-neutral-600: #d4d4d4;
+    --color-neutral-700: #e5e5e5;
+    --color-neutral-900: #fafafa;
+    --color-amber-50: #2a2008; --color-amber-100: #3b2c0a; --color-amber-300: #a16207; --color-amber-800: #fcd34d; --color-amber-900: #fde68a;
+    --color-red-50: #2a1010; --color-red-300: #b91c1c; --color-red-600: #f87171; --color-red-700: #fca5a5; --color-red-800: #fecaca;
+    --color-blue-50: #0f1e3a; --color-blue-800: #bfdbfe;
+    --color-green-50: #0d2a17; --color-green-800: #bbf7d0; --color-green-900: #dcfce7;
+  }
+}

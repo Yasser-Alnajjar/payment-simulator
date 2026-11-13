@@ -12,7 +12,8 @@
     "migrate:deploy": "prisma migrate deploy",
     "typecheck": "prisma generate && tsc --noEmit",
     "test": "vitest run --passWithNoTests",
-    "verify:s1": "tsx scripts/verify-s1.ts"
+    "verify:s1": "tsx scripts/verify-s1.ts",
+    "verify:s2": "tsx scripts/verify-s2.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.1",

@@ -31,3 +31,12 @@ export function Loader() {
 export function SandboxBanner() {
   return <div className="bg-amber-100 px-4 py-1.5 text-center text-xs text-amber-900">Sandbox environment: no real payments are processed.</div>;
 }
+
+const BADGE: Record<string, string> = {
+  open: "bg-blue-50 text-blue-800", pending: "bg-amber-50 text-amber-800", completed: "bg-green-50 text-green-800", succeeded: "bg-green-50 text-green-800",
+  failed: "bg-red-50 text-red-800", expired: "bg-neutral-100 text-neutral-700", cancelled: "bg-neutral-100 text-neutral-700",
+};
+
+export function Badge({ status }: { status: string }) {
+  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${BADGE[status] ?? "bg-neutral-100 text-neutral-700"}`}>{status}</span>;
+}

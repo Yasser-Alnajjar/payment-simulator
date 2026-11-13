@@ -1,6 +1,6 @@
-# S2 plan: payment simulator backend (PROPOSAL, revision 2; nothing implemented)
+# S2 plan: payment simulator backend (revision 3: IMPLEMENTED; see `docs/S2-report.md`)
 
-Status: planning only. No code, schema, migration, SQL, dependency, environment, Docker or Git change has been made for S2. Implementation waits for explicit approval.
+Status: approved and implemented on 2026-11-13. This file remains the specification. Where the implementation refined the plan, the changes are listed in "Implementation notes" at the end; `docs/state-machines.md` documents the state machines, scenarios, events and bounded timing as built.
 
 > **Rule R-DB-1: Hosted Supabase Only — No Local Supabase.** The authoritative text is in `arch-plan.md` (section of that name, top of file). In short: no local Supabase, no Supabase CLI local development, no Docker/Compose or any local/disposable database container, ever; every database integration test runs against the existing Hosted Supabase PostgreSQL database under the safeguards in §9; web, worker and scripts may run locally and connect to it; no database URL, password or key appears in logs, reports, commits or docs. This plan must not be read as offering any alternative.
 
@@ -17,18 +17,9 @@ In scope (roadmap `arch-plan.md` §20 and `docs/S0-report.md` §§6-8, as amende
 
 Explicit exclusions: hosted checkout page and any dashboard UI (S3); webhook endpoints, signing, deliveries, worker, retries, SSRF guard (S4); OpenAPI and docs (S5); retention jobs, non-owner runtime role (S6); card data, `success_url`/`cancel_url`, refunds; any local/containerized database (forbidden by R-DB-1).
 
-## 2. Verified S1 state (from project records; nothing was queried for this revision)
+## 2. S1 hosted state (historical record, 2026-11-13; not a live inspection)
 
-| Item | Status | Source |
-|---|---|---|
-| Hosted project | One dedicated Supabase project, ref `yxyhgelnenqeulzxukrc`; PostgreSQL 17.11 observed at S1 inspection (re-verify at runtime) | `docs/S1-hosted-supabase.md` |
-| S1 migration `20261113000000_s1_foundation` | **Applied** to the hosted `public` schema: tables `api_credentials`, `audit_logs`, plus `_prisma_migrations` | Operator statement that S1 is complete (2026-11-13); the hosted-dev harness mode requires both tables to exist. `docs/S1-hosted-supabase.md` previously said "nothing applied"; it is stale and has been corrected |
-| Pre-migration default-privilege hardening and `_prisma_migrations` protection | Part of the S1 procedure; applied state **not recorded** in any document | Confirm with the read-only `verify-s1` script before S2 |
-| Real Auth data | At least the operator's own account(s) from the real signup and email-verification test. Count not recorded | Operator statement |
-| Test artifacts | The hosted-dev harness mode writes test users into `auth.users` (id only), credentials (cascade-deleted with those users) and **immutable `audit_logs` rows that cannot be removed**. The harness expects the operator to state the exact audit row count (`SANDBOX_TEST_EXPECT_AUDIT_ROWS`, default 0). Whether and how many such rows exist is **not recorded** | `apps/web/tests/harness.ts` header |
-| Row counts of `api_credentials` / `audit_logs` / `auth.users` | **Unknown from documents.** Do not assume empty | Measure read-only first |
-
-First S2 step after approval (read-only): run `verify-s1` and a counts/fingerprint query to record the baseline in `docs/S2-report.md`. That requires the operator's go-ahead since it connects to the hosted database.
+PostgreSQL 17.11; one Auth user (the real account); `api_credentials` 0 rows; `audit_logs` 45 rows; 26 orphaned audit user ids; S1 migration, default-privilege hardening and `_prisma_migrations` RLS/revocations applied; `verify:s1` 10/10; S1 integration tests 10/10. See `docs/S1-hosted-supabase.md`. S2 re-verifies the live state read-only (identity and baseline) before any write and records it in `docs/S2-report.md`.
 
 ## 3. What S1 provides and what S2 must add
 
@@ -126,21 +117,21 @@ Existing Hosted Supabase PostgreSQL (expected PostgreSQL 17; the major version i
 ### 9.3 Decision D12 (revised)
 Test environment: existing Hosted Supabase PostgreSQL only, PostgreSQL 17 subject to runtime verification, under 9.2. The earlier recommendation of a disposable Docker PostgreSQL 17 is **withdrawn** and may not be reintroduced (R-DB-1).
 
-### 9.4 Harness gaps (verified by reading `apps/web/tests/harness.ts`; required S2 implementation items)
-The current harness does **not** fully enforce §9.2. Do not assume these protections exist.
+### 9.4 Harness gaps found before S2 (all closed during S2; the old harness did not enforce §9.2)
+Resolution is recorded in the last column. The new harness is `apps/web/tests/harness.ts` plus `harness-safety.ts`, covered by `harness-guard.test.ts`.
 
-| # | Gap in current harness | Required change |
-|---|---|---|
-| G1 | A disposable mode exists (`TEST_DATABASE_URL`; creates and `DROP SCHEMA ... CASCADE` throwaway schemas, creates/drops an `auth` stub). Contradicts R-DB-1 and uses schema drops | Remove the mode and its env var; no schema creation or drops |
-| G2 | Hosted-dev mode is enabled by an environment variable alone (`SANDBOX_TEST_TARGET`) | Add the second, independent confirmation and identity checks (9.2 items 1-2) |
-| G3 | No positive identity check: only port 5432 and presence of two tables. The primary project ref is used to *refuse* in the disposable path, not to confirm | Verify project ref, database name, PG 17, expected objects before writes |
-| G4 | Aborts unless `api_credentials` is empty and `audit_logs` has an exact stated count; real credentials in the hosted DB would block every run, and the count is not recorded | Replace with baseline snapshot and fingerprint comparison of pre-existing rows; allow runs when real data exists |
-| G5 | Only `api_credentials`/`audit_logs` are known; S2 tables absent | Extend baseline/fingerprint to S2 tables |
-| G6 | Test users are inserted as bare `auth.users(id)` with no run tag; only in-memory tracking, so a crash orphans them untraceably | Run-id manifest; optionally a recognizable non-routable email (D13) |
-| G7 | No separation of read-only verification from write mode inside the harness | Split entry points and enforce 9.2 item 4 |
-| G8 | No unit test asserting the absence of `TRUNCATE`/`DROP`/unbounded `DELETE` | Add a static guard test |
-| G9 | No pool/parallelism cap | Add cap |
-| G10 | `.env.example` still documents `TEST_DATABASE_URL` and a throwaway-schema flow | Remove after approval to touch env files |
+| # | Gap in old harness | Required change | Resolution |
+|---|---|---|---|
+| G1 | A disposable mode exists (`TEST_DATABASE_URL`; creates and `DROP SCHEMA ... CASCADE` throwaway schemas, creates/drops an `auth` stub). Contradicts R-DB-1 and uses schema drops | Remove the mode and its env var; no schema creation or drops | Closed: disposable mode, schema creation and every `DROP SCHEMA` removed; `TEST_DATABASE_URL` is rejected |
+| G2 | Hosted-dev mode is enabled by an environment variable alone (`SANDBOX_TEST_TARGET`) | Add the second, independent confirmation and identity checks (9.2 items 1-2) | Closed: flag plus `SANDBOX_TEST_EXPECTED_REF` plus live identity verification |
+| G3 | No positive identity check: only port 5432 and presence of two tables. The primary project ref is used to *refuse* in the disposable path, not to confirm | Verify project ref, database name, PG 17, expected objects before writes | Closed: `verifyHostedIdentity` (ref from the connection, database name, PG 17, Supabase objects, migrations) |
+| G4 | Aborts unless `api_credentials` is empty and `audit_logs` has an exact stated count; real credentials in the hosted DB would block every run, and the count is not recorded | Replace with baseline snapshot and fingerprint comparison of pre-existing rows; allow runs when real data exists | Closed: baseline snapshot and fingerprints instead of empty-table requirements (live baseline: 2 credentials, 47+ audit rows) |
+| G5 | Only `api_credentials`/`audit_logs` are known; S2 tables absent | Extend baseline/fingerprint to S2 tables | Closed: leftovers in S2 tables are checked after cleanup |
+| G6 | Test users are inserted as bare `auth.users(id)` with no run tag; only in-memory tracking, so a crash orphans them untraceably | Run-id manifest; optionally a recognizable non-routable email (D13) | Closed: tagged test emails and a write-ahead manifest (D13) |
+| G7 | No separation of read-only verification from write mode inside the harness | Split entry points and enforce 9.2 item 4 | Closed: verification connection is forced read-only; writes use a separate connection; `verify:s2` is read-only |
+| G8 | No unit test asserting the absence of `TRUNCATE`/`DROP`/unbounded `DELETE` | Add a static guard test | Closed: static guard test plus `assertSafeSql` on every raw statement |
+| G9 | No pool/parallelism cap | Add cap | Closed: pool capped at 4, one run at a time via a database advisory lock |
+| G10 | `.env.example` still documents `TEST_DATABASE_URL` and a throwaway-schema flow | Remove after approval to touch env files | Closed: `.env.example` rewritten |
 
 ## 10. Decisions requiring approval
 
@@ -158,10 +149,22 @@ The current harness does **not** fully enforce §9.2. Do not assume these protec
 | D10 | Event payload storage | Exact serialized text, not jsonb |
 | D11 | Event read endpoints in S2 | Include `GET /events` and `/events/{id}` |
 | D12 | Test environment | **Revised:** Hosted Supabase PostgreSQL only, under §9; Docker/local options withdrawn permanently |
-| D13 | Marking test users | Give harness-created `auth.users` rows a run-tagged non-routable email so orphans are identifiable for targeted, approved cleanup. Alternative: id-only rows with the local run manifest as the sole record |
+| D13 | Marking test users | **Resolved:** harness-created `auth.users` rows get the run-tagged non-routable email `sbx-test-<runId>-<n>@sbx-test.invalid`, and the run writes a gitignored manifest of ids before use. Cleanup deletes only rows matching both an id from the manifest and that exact tag; interrupted runs are cleaned by `cleanup-test-run <runId>`, which matches only that run's tag. The real user can never match |
 
 ## 11. Assumptions
 - The roadmap in `arch-plan.md` §20 and S0 §§6-8, as amended by user-level ownership, defines S2.
 - The S1 hosted state is as in §2; counts are unmeasured.
 - No new dependencies are needed.
 - The checkout URL (`APP_URL/checkout/{token}`) returns 404 until S3.
+
+## 12. Implementation notes (deviations and refinements from this plan)
+- Amounts are accepted as decimal strings (`"149.00"`) and returned as `amount` (string) plus `amount_minor` (JSON-safe integer, maximum 10^12).
+- D2/D3/D4/D5/D8/D10/D11 were implemented as recommended. Pending payments are resolved lazily and by an exported sweep; `pending` and `timeout` resolve only by operator action (`resolvePendingPayment`, for S3 scenario controls) or session expiry/cancellation.
+- Checkout tokens: random, hash stored. Replay copies are sealed with AES-256-GCM using a key derived (HKDF-SHA256) from `SECRETS_ENCRYPTION_KEY` with the purpose `idempotency-checkout-token` and AAD `user|key|session`.
+- Idempotency keys are claimed first in the same transaction as the session; the key row's FK to the session is `DEFERRABLE INITIALLY DEFERRED` for that reason. Only successful creations are stored; validation errors do not consume the key.
+- Failed-authentication protection (not in the original plan): per-address pre-check, per-client-id and global post-failure counters in `auth_failure_windows` (30, 30 and 600 per minute); over-limit answers are 429.
+- `auth_failure_windows` has no `user_id` by design (documented exception).
+- Hosted-test hazards found: the operator using the dashboard while a run is active can change baseline rows and fail the post-run check (the harness reports which columns changed and never writes to them).
+- Deployment note: client address comes from the first `X-Forwarded-For` hop; deploy behind a proxy that sets it, otherwise all clients share one failure bucket.
+- Idempotency behaviour (as built): the key is `Idempotency-Key` (1-255 of `A-Za-z0-9_.:-`), scoped per user, accepted on `POST /api/v1/checkout/sessions` only (cancel is naturally idempotent). The fingerprint is SHA-256 over `METHOD\nendpoint\napi_version\ncanonical JSON body`. Same key and fingerprint replays the original status and body (including the checkout `url`) with `Idempotent-Replayed: true`; same key with a different fingerprint is `422 idempotency_key_reused`. Concurrent duplicates serialize on the unique index and replay. Keys older than 24 hours are treated as absent and replaced. Purging old rows is an S6 retention task.
+- API errors: `{error:{type,code,message,param?,request_id}}`; types `authentication_error`, `invalid_request_error`, `conflict_error`, `rate_limit_error`, `idempotency_error`, `api_error`. 401s carry `WWW-Authenticate: Basic`; 429s carry `Retry-After`.
