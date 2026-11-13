@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "rm -rf .next && dotenv -e ../../.env -- next dev --port 3100",
-    "build": "next build",
+    "build": "pnpm --filter @sandbox/db generate && next build",
     "start": "next start -p 3100",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run"
