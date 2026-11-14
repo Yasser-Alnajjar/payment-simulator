@@ -1,6 +1,6 @@
 # S4 report: webhooks and scheduler (2026-11-14)
 
-Status (updated after the hosted phase): migration `20261114120000_s4_webhooks` **applied** to the hosted project and verified (`verify:s4`: all checks pass); hosted integration suite **159 passed, 0 failed, 0 skipped**. Scheduler setup (Vercel secret, `pg_cron`/`pg_net`, Vault, job) is tracked in §9.
+Status (updated after the hosted phase): migration `20261114120000_s4_webhooks` **applied** to the hosted project and verified (`verify:s4`: all checks pass); hosted integration suite **159 passed, 0 failed, 0 skipped**. Deployment, Cron and end-to-end results are in §10; the operator confirmed the Vercel project, Root Directory, deployed commit and function configuration.
 
 ## 1. What was built
 
@@ -31,7 +31,7 @@ Status (updated after the hosted phase): migration `20261114120000_s4_webhooks` 
 - Tests / scripts: `apps/web/tests/{webhooks,webhook-sender,scheduler-tick-route}.test.ts`, `apps/web/scripts/e2e-receiver.ts`, `packages/db/scripts/verify-s4.ts`.
 - DB / ops / docs: `packages/db/prisma/migrations/20261114120000_s4_webhooks/migration.sql`, `packages/db/ops/003_s4_scheduler.sql`, `docs/{S4-plan,S4-rollback.sql,scheduler-setup,webhooks,S4-report}`.
 
-## 3. Migration `20261114120000_s4_webhooks` (written, NOT applied)
+## 3. Migration `20261114120000_s4_webhooks` (applied and verified 2026-11-14, see §9)
 
 - Requires `20261113200000_payment_methods`.
 - **Existing objects touched (3):** new UNIQUE index `events(id, user_id)`; `events_type_check` re-created with `webhook_endpoint.test` added (`NOT VALID` then `VALIDATE`); `api_idempotency_keys_scope_check` re-created with `webhook_endpoint.create` added. No existing row is modified. No `TRUNCATE`, no `DELETE`, no table drop.
@@ -102,7 +102,7 @@ Covered locally: signatures (tamper, wrong secret, tolerance, dual secret), retr
 - Payment-method, setup-session and charge paths still lack hosted integration tests (deferred since S2).
 
 ## 7. Remaining risks and unverified assumptions
-1. **Fan-out SQL and the claim/reaper SQL are unexecuted** (`$executeRaw`/`$queryRaw` with `make_interval`, `ANY`, `DISTINCT ON … FOR UPDATE SKIP LOCKED`, the new exhaustion `UPDATE … FROM`). Type or syntax errors would surface only on first hosted run; mitigated by running hosted tests **before** deploying the code to production.
+1. **(Resolved) Fan-out SQL and the claim/reaper SQL were unexecuted before the hosted phase** (`$executeRaw`/`$queryRaw` with `make_interval`, `ANY`, `DISTINCT ON … FOR UPDATE SKIP LOCKED`, the new exhaustion `UPDATE … FROM`). Type or syntax errors would surface only on first hosted run; mitigated by running hosted tests **before** deploying the code to production.
 2. **Deploy order is a hard requirement** (migration → `verify:s4` → deploy; §4.4). Rollback by redeploying the previous build is safe only while the S4 tables remain.
 3. **Vercel limits**: I rely on the route-level `maxDuration = 60` being honoured on your plan (the comment in the code says Hobby allows up to 300 s; I could not confirm your project's plan or whether Fluid Compute is enabled). Check the first production tick's `duration_ms`.
 4. **Supabase Free**: project pausing after inactivity stops cron; `pg_net` is beta and its queue is lost on a database crash (a lost tick is harmless). Whether `pg_cron`/`pg_net` are installed on the hosted project is unknown until `verify:s4 --baseline`.
@@ -111,7 +111,7 @@ Covered locally: signatures (tamper, wrong secret, tolerance, dual secret), retr
 7. **E2E tunnel** (planned) uses a third-party service; only test payloads would pass through it.
 8. The tests share the hosted database with the operator's use: do not use the dashboard during hosted test runs, and pause the cron job first (the harness refuses otherwise).
 
-## 8. Proposed first hosted operations (nothing done; awaiting approval, each separately)
+## 8. Hosted operations plan (as proposed before approval; all steps were later executed, see §9 and §10)
 1. `pnpm --filter @sandbox/db verify:s4 -- --baseline` (read-only: identity, migration history, extension availability, size, counts).
 2. Migration dry-run in a rolled-back transaction (`dry-run-migration.ts 20261114120000_s4_webhooks`).
 3. Apply the migration with `prisma migrate deploy`; run `verify:s4` (read-only).
@@ -142,3 +142,11 @@ Covered locally: signatures (tamper, wrong secret, tolerance, dual secret), retr
 **End-to-end test** (`apps/web/tests/e2e-deployed.test.ts`, 1 test, passed in 143 s): real Cron to `pg_net` to the Vercel tick to HTTPS delivery. Receiver on this machine behind a Cloudflare quick tunnel (third-party relay, sandbox test payloads only). Verified: endpoint creation through the deployed API (SSRF rules accepted a public HTTPS host); test event queued by the deployed API; a real payment (session created through the deployed API, payment attempt executed locally because the hosted checkout page has no public API) fanned out two deliveries in its transaction; the deployed scheduler delivered all three; the receiver answered 500 once to `payment.succeeded`, the attempt was recorded `retryable` with `next_retry_at` 23-37 s later, attempt 2 succeeded with identical body bytes and attempt header `2`; all attempts non-stale, non-injected, contiguous numbering, `valid` signatures, `User-Agent` and delivery headers correct; a second tenant got 404 on every cross-tenant read and test-send and an empty delivery list; Cron runs, `pg_net` responses and the lease summary were healthy. Cleanup: harness removed both test users; afterwards webhook tables are empty, no tagged test users remain, and existing data matches (users 1, credentials 3, sessions 5, payments 18, events 35, payment methods 3, setup sessions 3, idempotency keys 2).
 
 **Notes**: with Cron active the hosted write-test harness refuses to run (by design); it has a narrow opt-out used only by the e2e test. To re-run the full hosted suite, pause the job first (`SELECT cron.alter_job((SELECT jobid FROM cron.job WHERE jobname = 'sandbox-scheduler-tick'), active := false);`) and re-enable afterwards. The full 159-test hosted run was last executed before Cron existed.
+
+## 11. Final read-only audit (2026-11-14, 21:11 UTC)
+- **Cron**: both jobs active (`sandbox-scheduler-tick` every minute, `sandbox-cron-history-cleanup` daily). 13 of 13 tick runs in the last 15 minutes `succeeded`; 13 of 13 `pg_net` responses HTTP 200, none timed out; longest tick 5.5 s, 0 errors in any summary.
+- **Scheduler / deliveries**: lease free (`locked_until` null), last tick finished one second after it started with 0 stale, failed or errored deliveries; webhook endpoints, deliveries and attempts are all empty (the e2e run's data was removed).
+- **Test data**: 0 tagged test users; remaining rows equal the pre-S4 baseline plus the two designed sweep events (users 1, credentials 3, sessions 5, payments 18, events 35, payment methods 3, setup sessions 3, idempotency keys 2). Immutable audit rows written by tests remain by design.
+- **Secrets**: only the two Vault entries `sandbox_tick_url` and `sandbox_tick_secret` exist; the unauthenticated tick request still returns 404.
+- **Repository**: `origin/main` = `4b6c781`; `apps/web/src/lib/env.ts` is untouched by S4 and remains uncommitted (modified, 22 insertions / 1 deletion, same as before S4).
+- **Remaining risks and limitations**: §6 and §7 still apply, with these updates: item 1 of §7 is resolved; the deployed-function checks of §10 were confirmed by the operator. Still open: Supabase Free project pausing stops Cron; `pg_net` is beta; delivery latency is up to about 80 s after an event; the committed code does not include the uncommitted `env.ts` `APP_URL` fallback; no retention purge for webhook tables (S6); sweeps are bounded by count not time; the hosted write tests must be run with the job paused; the exhausted-attempts reaper statement runs on every claim (so it is syntax- and type-checked against PostgreSQL) but no test forces the exhaustion case, and the poison-delivery fix (unopenable secret recorded as a permanent attempt) has no dedicated test; the DNS timeout is unit-tested only.
