@@ -17,4 +17,6 @@ export interface ApiDeps {
   appUrl: string;
   now: () => Date;
   config: ApiConfig;
+  /** Webhook URLs may target http/localhost/private addresses. Only ever true in development (see webhooks/config.ts) or tests. */
+  allowPrivateWebhookTargets?: boolean;
 }

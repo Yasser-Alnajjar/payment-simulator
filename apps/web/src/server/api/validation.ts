@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CUSTOMER_REFERENCE, SCENARIOS, SUPPORTED_CURRENCIES, MoneyError, parseAmount, MAX_PENDING_DELAY_SECONDS, MIN_PENDING_DELAY_SECONDS } from "@sandbox/core";
+import { FAILURE_DELAY_MAX, FAILURE_DELAY_MIN, FAILURE_MODES, WEBHOOK_MAX_ATTEMPTS_MAX, WEBHOOK_MAX_ATTEMPTS_MIN, WEBHOOK_MAX_ENABLED_EVENTS, CUSTOMER_REFERENCE, SCENARIOS, SUPPORTED_CURRENCIES, MoneyError, parseAmount, MAX_PENDING_DELAY_SECONDS, MIN_PENDING_DELAY_SECONDS } from "@sandbox/core";
 import { ApiError, invalidRequest } from "./errors";
 
 export const EXPIRES_MIN = 300;
@@ -71,6 +71,35 @@ const cursor = z.string().max(64);
 export const sessionsQuery = z.strictObject({ limit: limit.optional(), starting_after: cursor.optional(), status: z.enum(["open", "completed", "expired", "cancelled"]).optional(), external_reference: z.string().min(1).max(255).optional() });
 export const paymentsQuery = z.strictObject({ limit: limit.optional(), starting_after: cursor.optional(), status: z.enum(["pending", "succeeded", "failed", "cancelled"]).optional(), checkout_session_id: cursor.optional(), payment_method: cursor.optional(), customer: z.string().max(128).optional() });
 export const eventsQuery = z.strictObject({ limit: limit.optional(), starting_after: cursor.optional(), type: z.string().max(64).optional() });
+
+const webhookUrl = z.string({ error: "url is required" }).min(1).max(2048);
+const webhookDescription = z.string().max(500).refine((v) => !CONTROL.test(v), "No control characters");
+const enabledEvents = z.array(z.string().max(64), { error: "enabled_events must be an array of event types" }).min(1).max(WEBHOOK_MAX_ENABLED_EVENTS);
+const maxAttempts = z.number().int().min(WEBHOOK_MAX_ATTEMPTS_MIN).max(WEBHOOK_MAX_ATTEMPTS_MAX);
+
+export const createWebhookEndpointBody = z.strictObject({
+  url: webhookUrl,
+  description: webhookDescription.optional(),
+  enabled_events: enabledEvents,
+  max_attempts: maxAttempts.optional(),
+});
+
+export const updateWebhookEndpointBody = z.strictObject({
+  url: webhookUrl.optional(),
+  description: webhookDescription.nullable().optional(),
+  enabled_events: enabledEvents.optional(),
+  status: z.enum(["enabled", "disabled"]).optional(),
+  max_attempts: maxAttempts.optional(),
+  failure_mode: z.enum(FAILURE_MODES).optional(),
+  failure_mode_remaining: z.number().int().min(1).max(100).nullable().optional(),
+  failure_delay_seconds: z.number().int().min(FAILURE_DELAY_MIN).max(FAILURE_DELAY_MAX).nullable().optional(),
+}).refine((o) => Object.keys(o).length > 0, "Provide at least one field to update");
+
+export const webhookEndpointsQuery = z.strictObject({ limit: limit.optional(), starting_after: cursor.optional() });
+export const webhookDeliveriesQuery = z.strictObject({
+  limit: limit.optional(), starting_after: cursor.optional(), endpoint_id: cursor.optional(), event_id: cursor.optional(),
+  status: z.enum(["pending", "retrying", "succeeded", "failed", "cancelled"]).optional(),
+});
 
 export const delaySchema = z.number().int().min(MIN_PENDING_DELAY_SECONDS).max(MAX_PENDING_DELAY_SECONDS);
 

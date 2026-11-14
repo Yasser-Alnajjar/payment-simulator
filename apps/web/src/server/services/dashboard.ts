@@ -1,10 +1,12 @@
 import { formatAmount, toPublicId } from "@sandbox/core";
 import type { PrismaClient } from "@sandbox/db";
-import { paymentDto, paymentMethodDto, sessionDto } from "../api/dto";
+import type { SchedulerStatus, WebhookDeliveryDetailData, WebhookEndpointDetailData, WebhooksPageData } from "@/lib/types/webhook";
+import { paymentDto, paymentMethodDto, sessionDto, webhookDeliveryDto, webhookEndpointDto } from "../api/dto";
 import { sweepUser } from "../lifecycle";
 import { getCheckoutSession, listCheckoutSessions } from "./checkout-sessions";
 import { listPayments } from "./payments";
 import { getPaymentMethod, listPaymentMethods } from "./payment-methods";
+import { getWebhookDelivery, getWebhookEndpoint, listWebhookDeliveries, listWebhookEndpoints } from "./webhooks";
 
 export type SessionRow = ReturnType<typeof sessionDto>;
 export type PaymentRow = ReturnType<typeof paymentDto>;
@@ -89,4 +91,47 @@ export async function methodDetail(db: PrismaClient, userId: string, publicId: s
     payments: payments.map((p) => paymentDto(p, p.checkoutSessionId ? byId.get(p.checkoutSessionId) ?? null : null)),
     events: events.map((e) => ({ id: toPublicId("event", e.id), type: e.type, created: e.createdAt.toISOString() })),
   };
+}
+
+// ---------------------------------------------------------------- webhooks (S4)
+
+const SCHEDULER_STALE_MS = 3 * 60_000;
+
+export async function schedulerStatus(db: PrismaClient, now: Date): Promise<SchedulerStatus> {
+  const row = await db.schedulerLease.findUnique({ where: { name: "tick" } }).catch(() => null);
+  const summary = (row?.lastSummary ?? null) as { duration_ms?: number } | null;
+  const finished = row?.lastFinishedAt ?? null;
+  return {
+    lastStartedAt: row?.lastStartedAt?.toISOString() ?? null,
+    lastFinishedAt: finished?.toISOString() ?? null,
+    lastDurationMs: typeof summary?.duration_ms === "number" ? summary.duration_ms : null,
+    stale: !finished || now.getTime() - finished.getTime() > SCHEDULER_STALE_MS,
+  };
+}
+
+const stripSecret = ({ secret: _s, ...e }: ReturnType<typeof webhookEndpointDto>) => e; // eslint-disable-line @typescript-eslint/no-unused-vars
+
+export async function webhooksPage(db: PrismaClient, userId: string, now: Date, q: { after?: string }): Promise<WebhooksPageData> {
+  const [endpoints, deliveries, scheduler] = await Promise.all([
+    listWebhookEndpoints(db, userId, { limit: 16 }),
+    listWebhookDeliveries(db, userId, { limit: 20, startingAfter: q.after }),
+    schedulerStatus(db, now),
+  ]);
+  const rows = deliveries.items.map((d) => webhookDeliveryDto(d));
+  return { endpoints: endpoints.items.map((e) => stripSecret(webhookEndpointDto(e))), deliveries: rows, nextDeliveries: deliveries.hasMore ? rows[rows.length - 1]!.id : null, scheduler };
+}
+
+export async function webhookEndpointDetail(db: PrismaClient, userId: string, publicId: string): Promise<WebhookEndpointDetailData> {
+  const e = await getWebhookEndpoint(db, userId, publicId); // owner-scoped
+  const deliveries = await listWebhookDeliveries(db, userId, { limit: 25, endpointId: publicId });
+  const rows = deliveries.items.map((d) => webhookDeliveryDto(d));
+  let consecutiveFailures = 0;
+  for (const d of rows) { if (d.status === "failed") consecutiveFailures++; else if (d.status === "succeeded") break; }
+  return { endpoint: stripSecret(webhookEndpointDto(e)), deliveries: rows, consecutiveFailures };
+}
+
+export async function webhookDeliveryDetail(db: PrismaClient, userId: string, publicId: string): Promise<WebhookDeliveryDetailData> {
+  const r = await getWebhookDelivery(db, userId, publicId); // owner-scoped
+  const ev = await db.event.findFirst({ where: { id: r.delivery.eventId, userId }, select: { type: true, payload: true } });
+  return { delivery: webhookDeliveryDto(r.delivery, r.attempts) as WebhookDeliveryDetailData["delivery"], eventType: ev?.type ?? "unknown", payload: ev?.payload ?? "" };
 }

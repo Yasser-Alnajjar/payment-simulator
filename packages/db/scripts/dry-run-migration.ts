@@ -15,11 +15,13 @@ async function main() {
   const name = process.argv[2];
   if (!name || !/^[0-9]{14}_[a-z0-9_]+$/.test(name)) throw new Error("usage: dry-run-migration.ts <migration-folder-name>");
   const sql = readFileSync(path.resolve(import.meta.dirname, "../prisma/migrations", name, "migration.sql"), "utf8");
-  // Exact, reviewed widenings that are not data loss (documented in docs/payment-methods.md). Anything else with DROP is still refused.
+  // Exact, reviewed widenings that are not data loss (each is a drop-and-re-add widening; S4 ones are documented in docs/S4-plan.md). Anything else with DROP is still refused.
   const ALLOWED = [
     /DROP INDEX "events_user_id_subject_id_type_key";/g,
     /ALTER TABLE "events" DROP CONSTRAINT "events_type_check";/g,
     /ALTER TABLE "transactions" ALTER COLUMN "checkout_session_id" DROP NOT NULL;/g,
+    // S4: the scope check is dropped and immediately re-added with one more allowed value (no data affected).
+    /ALTER TABLE "api_idempotency_keys" DROP CONSTRAINT "api_idempotency_keys_scope_check";/g,
   ];
   let stripped = sql.replace(/--.*$/gm, "").replace(/BEFORE\s+TRUNCATE\s+ON/gi, "TRIGGER_EVENT_ON"); // a TRUNCATE *guard* trigger is not a TRUNCATE
   for (const a of ALLOWED) stripped = stripped.replace(a, "");

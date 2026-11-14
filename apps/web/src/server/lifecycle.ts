@@ -5,6 +5,7 @@ import {
 import type { CheckoutSession, Prisma, PrismaClient, Transaction } from "@sandbox/db";
 import { ApiError, conflict, notFound } from "./api/errors";
 import { isUniqueViolation } from "./db-errors";
+import { fanOutDeliveries } from "./webhooks/fanout";
 
 export const API_VERSION = "2026-11-01";
 export type Tx = Prisma.TransactionClient;
@@ -19,11 +20,17 @@ export async function lockSession(tx: Tx, userId: string, id: string): Promise<C
 
 export interface EventInput { userId: string; type: string; subjectId: string; data: Record<string, unknown>; now: Date; occurrence?: number }
 
-/** Persists the event in the caller's transaction. The payload text is serialized once here and never regenerated. */
-export async function emitEvent(tx: Tx, e: EventInput) {
+/**
+ * Persists the event in the caller's transaction. The payload text is serialized once here and never regenerated.
+ * Webhook fan-out (outbox): in the SAME transaction, one delivery row per enabled, subscribed endpoint of the event's owner, so an
+ * event and its deliveries are committed together or not at all. Sending happens later, in the scheduler tick.
+ */
+export async function emitEvent(tx: Tx, e: EventInput): Promise<string> {
   const id = newUuid();
   const payload = JSON.stringify({ id: toPublicId("event", id), object: "event", type: e.type, created: e.now.toISOString(), api_version: API_VERSION, data: e.data });
   await tx.event.create({ data: { id, userId: e.userId, type: e.type, subjectId: e.subjectId, payload, occurrence: e.occurrence ?? 0, createdAt: e.now } });
+  await fanOutDeliveries(tx, { eventId: id, userId: e.userId, type: e.type, now: e.now });
+  return id;
 }
 
 const sessionData = (s: CheckoutSession, status: string) => ({
@@ -141,11 +148,26 @@ export async function sweepUser(db: PrismaClient, userId: string, now: Date, lim
   return ids.length;
 }
 
-/** Global bounded sweep. Exported for the S4 worker; also usable by operators. */
-export async function sweepAll(db: PrismaClient, now: Date, limit = 100): Promise<number> {
+export interface SweepResult { settled: number; failed: number }
+
+/**
+ * Global bounded sweep, run by the scheduler tick. Each session settles in its own transaction under its row lock (the same path
+ * as lazy settlement on read, so concurrent sweeps and reads cannot double-apply anything). A session that fails to settle is
+ * logged by id and skipped for this run, so one bad row can never block every other session behind it.
+ */
+export async function sweepAll(db: PrismaClient, now: Date, limit = 100): Promise<SweepResult> {
   const due = await dueSessions(db, now, limit);
-  for (const d of due) await settleSession(db, d.userId, d.id, now);
-  return due.length;
+  const r: SweepResult = { settled: 0, failed: 0 };
+  for (const d of due) {
+    try {
+      await settleSession(db, d.userId, d.id, now);
+      r.settled++;
+    } catch (e) {
+      r.failed++;
+      console.error("sweep: session settlement failed", d.id, e instanceof Error ? e.name : "unknown");
+    }
+  }
+  return r;
 }
 
 async function dueSessions(db: PrismaClient, now: Date, limit: number, userId?: string): Promise<{ id: string; userId: string }[]> {

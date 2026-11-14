@@ -1,11 +1,11 @@
 import { requestFingerprint } from "@sandbox/core";
 import { authenticate, type ApiAuth } from "./auth";
 import type { ApiDeps } from "./deps";
-import { eventRaw, listDto, paymentDto, paymentMethodDto, RawJson, rawList, sessionDto, setupSessionDto } from "./dto";
+import { eventRaw, listDto, paymentDto, paymentMethodDto, RawJson, rawList, sessionDto, setupSessionDto, webhookDeliveryDto, webhookEndpointDto } from "./dto";
 import { ApiError, invalidRequest } from "./errors";
 import { errorResponse, newRequestId, readJsonBody, toResponse, type ApiResult } from "./http";
 import { consumeUserRateLimit, rateHeaders } from "./rate-limit";
-import { createChargeBody, createMethodBody, createSessionBody, createSetupBody, defaultMethodQuery, eventsQuery, methodsQuery, paymentsQuery, parseMoney, parseWith, queryObject, sessionsQuery } from "./validation";
+import { createChargeBody, createMethodBody, createSessionBody, createSetupBody, createWebhookEndpointBody, defaultMethodQuery, eventsQuery, methodsQuery, paymentsQuery, parseMoney, parseWith, queryObject, sessionsQuery, updateWebhookEndpointBody, webhookDeliveriesQuery, webhookEndpointsQuery } from "./validation";
 import { API_VERSION } from "../lifecycle";
 import { cancelCheckoutSession, createCheckoutSession, getCheckoutSession, listCheckoutSessions } from "../services/checkout-sessions";
 import { getEvent, listEvents } from "../services/events";
@@ -14,6 +14,10 @@ import { IDEM_KEY } from "../services/api-idempotency";
 import { createCharge } from "../services/charges";
 import { assertCustomer, createPaymentMethod, disablePaymentMethod, getDefaultPaymentMethod, getPaymentMethod, listPaymentMethods, removePaymentMethod, setDefaultPaymentMethod } from "../services/payment-methods";
 import { cancelSetupSession, createSetupSession, getSetupSession } from "../services/setup-sessions";
+import {
+  createWebhookEndpoint, deleteWebhookEndpoint, getWebhookDelivery, getWebhookEndpoint, listWebhookDeliveries, listWebhookEndpoints, retryWebhookDelivery,
+  rotateWebhookSecret, sendTestEvent, updateWebhookEndpoint,
+} from "../services/webhooks";
 
 interface Ctx { req: Request; deps: ApiDeps; auth: ApiAuth; url: URL; now: Date }
 
@@ -162,4 +166,66 @@ export const handlers = {
       const r = await removePaymentMethod(c.deps.db, c.auth.userId, id, c.now);
       return { status: 200, body: { id: r.id, object: "payment_method", deleted: true } };
     }),
+
+  // ---------------------------------------------------------------- webhooks (S4)
+  createWebhookEndpoint: (req: Request, deps: ApiDeps) =>
+    run(req, deps, async (c) => {
+      const raw = await readJsonBody(c.req);
+      const b = parseWith(createWebhookEndpointBody, raw);
+      const r = await createWebhookEndpoint(c.deps.db, whDeps(c), c.auth.userId, { url: b.url, description: b.description ?? null, enabledEvents: b.enabled_events, maxAttempts: b.max_attempts, rawBody: raw }, idemKeyOf(c.req, false));
+      return { status: r.status, body: webhookEndpointDto(r.endpoint, { secret: r.secret }), headers: r.replayed ? { "idempotent-replayed": "true" } : undefined };
+    }),
+
+  listWebhookEndpoints: (req: Request, deps: ApiDeps) =>
+    run(req, deps, async (c) => {
+      const q = parseWith(webhookEndpointsQuery, queryObject(c.url));
+      const page = await listWebhookEndpoints(c.deps.db, c.auth.userId, { limit: q.limit, startingAfter: q.starting_after });
+      return { status: 200, body: listDto(page.items.map((e) => webhookEndpointDto(e)), page.hasMore) };
+    }),
+
+  getWebhookEndpoint: (req: Request, deps: ApiDeps, id: string) =>
+    run(req, deps, async (c) => ({ status: 200, body: webhookEndpointDto(await getWebhookEndpoint(c.deps.db, c.auth.userId, id)) })),
+
+  updateWebhookEndpoint: (req: Request, deps: ApiDeps, id: string) =>
+    run(req, deps, async (c) => {
+      const b = parseWith(updateWebhookEndpointBody, await readJsonBody(c.req));
+      const e = await updateWebhookEndpoint(c.deps.db, whDeps(c), c.auth.userId, id, {
+        url: b.url, description: b.description, enabledEvents: b.enabled_events, status: b.status, maxAttempts: b.max_attempts,
+        failureMode: b.failure_mode, failureModeRemaining: b.failure_mode_remaining, failureDelaySeconds: b.failure_delay_seconds,
+      });
+      return { status: 200, body: webhookEndpointDto(e) };
+    }),
+
+  deleteWebhookEndpoint: (req: Request, deps: ApiDeps, id: string) =>
+    run(req, deps, async (c) => {
+      const r = await deleteWebhookEndpoint(c.deps.db, c.auth.userId, id, c.now);
+      return { status: 200, body: { id: r.id, object: "webhook_endpoint", deleted: true, cancelled_deliveries: r.cancelledDeliveries } };
+    }),
+
+  rotateWebhookSecret: (req: Request, deps: ApiDeps, id: string) =>
+    run(req, deps, async (c) => {
+      const r = await rotateWebhookSecret(c.deps.db, whDeps(c), c.auth.userId, id);
+      return { status: 200, body: webhookEndpointDto(r.endpoint, { secret: r.secret }) };
+    }),
+
+  sendWebhookTest: (req: Request, deps: ApiDeps, id: string) =>
+    run(req, deps, async (c) => ({ status: 202, body: webhookDeliveryDto(await sendTestEvent(c.deps.db, c.auth.userId, id, c.now)) })),
+
+  listWebhookDeliveries: (req: Request, deps: ApiDeps) =>
+    run(req, deps, async (c) => {
+      const q = parseWith(webhookDeliveriesQuery, queryObject(c.url));
+      const page = await listWebhookDeliveries(c.deps.db, c.auth.userId, { limit: q.limit, startingAfter: q.starting_after, endpointId: q.endpoint_id, eventId: q.event_id, status: q.status });
+      return { status: 200, body: listDto(page.items.map((d) => webhookDeliveryDto(d)), page.hasMore) };
+    }),
+
+  getWebhookDelivery: (req: Request, deps: ApiDeps, id: string) =>
+    run(req, deps, async (c) => {
+      const r = await getWebhookDelivery(c.deps.db, c.auth.userId, id);
+      return { status: 200, body: webhookDeliveryDto(r.delivery, r.attempts) };
+    }),
+
+  retryWebhookDelivery: (req: Request, deps: ApiDeps, id: string) =>
+    run(req, deps, async (c) => ({ status: 202, body: webhookDeliveryDto(await retryWebhookDelivery(c.deps.db, c.auth.userId, id, c.now)) })),
 };
+
+const whDeps = (c: Ctx) => ({ encKey: c.deps.encKey, now: c.now, allowPrivate: c.deps.allowPrivateWebhookTargets === true });

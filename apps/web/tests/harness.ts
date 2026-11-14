@@ -22,6 +22,12 @@ export const DB_TESTS_ENABLED = process.env.SANDBOX_TEST_TARGET !== undefined;
 const LOCK_KEY = 7_428_190_331n; // arbitrary constant, database-wide advisory lock for "a test run is active"
 const MANIFEST_DIR = path.resolve(__dirname, "../.sbx-test-runs");
 const POOL_MAX = 4;
+/** User-owned tables checked for leftovers after every run. Names are constants (never input), so interpolating them is safe. */
+export const OWNED_TABLES = [
+  "api_credentials", "checkout_sessions", "transactions", "events", "idempotency_keys", "api_rate_limits",
+  "payment_methods", "setup_sessions", "api_idempotency_keys",
+  "webhook_endpoints", "webhook_deliveries", "webhook_delivery_attempts",
+] as const;
 
 export interface Harness {
   prisma: ReturnType<typeof createPrismaClient>;
@@ -51,6 +57,12 @@ export async function createTestDb(opts: { requireS2?: boolean } = {}): Promise<
   try {
     const identity = await verifyHostedIdentity(reader, { url, declaredRef: process.env.SANDBOX_TEST_EXPECTED_REF, requireS2: opts.requireS2 ?? true });
     if (identity.projectRef !== EXPECTED_PROJECT_REF) throw new Error("Identity mismatch");
+
+    // S4: a running Supabase Cron tick would sweep and claim this run's data concurrently. Refuse unless it is paused.
+    if ((await reader.query("select to_regclass('public.scheduler_leases') is not null as present")).rows[0].present) {
+      const recent = (await reader.query("select count(*)::int n from public.scheduler_leases where name = 'tick' and last_started_at > now() - interval '3 minutes'")).rows[0].n;
+      if (recent > 0) throw new Error("The scheduler tick ran in the last 3 minutes: pause the Supabase Cron job (cron.alter_job ... active := false) before running hosted write tests");
+    }
 
     writer = new pg.Client({ connectionString: url });
     await writer.connect();
@@ -105,14 +117,13 @@ export async function createTestDb(opts: { requireS2?: boolean } = {}): Promise<
             await w.query("DELETE FROM auth.users WHERE id = ANY($1::uuid[]) AND email = ANY($2::text[])", [ids, emails]);
           }
           // Everything this run created must be gone (children cascade); everything that existed must be untouched.
-          const leftover = (await reader.query(
-            `select (select count(*) from auth.users where id = any($1::uuid[])) u,
-                    (select count(*) from public.api_credentials where user_id = any($1::uuid[])) c,
-                    (select count(*) from public.checkout_sessions where user_id = any($1::uuid[])) s,
-                    (select count(*) from public.events where user_id = any($1::uuid[])) e`,
-            [ids],
-          )).rows[0];
-          if (Object.values(leftover).some((n) => Number(n) !== 0)) problem = `leftover test rows: ${JSON.stringify(leftover)}`;
+          const leftover: Record<string, number> = {
+            "auth.users": Number((await reader.query("select count(*) n from auth.users where id = any($1::uuid[])", [ids])).rows[0].n),
+          };
+          // Every user-owned table that exists in this database (S4 tables only once their migration is applied).
+          const present = (await reader.query("select t from unnest($1::text[]) t where to_regclass('public.' || t) is not null", [OWNED_TABLES])).rows.map((r) => r.t as string);
+          for (const t of present) leftover[t] = Number((await reader.query(`select count(*) n from public.${t} where user_id = any($1::uuid[])`, [ids])).rows[0].n);
+          if (Object.values(leftover).some((n) => n !== 0)) problem = `leftover test rows: ${JSON.stringify(leftover)}`;
           const bi = baseUsers.map((u) => u.id);
           const usersNow = (await reader.query(FINGERPRINT.authUsers.replace("from auth.users", "from auth.users where id = any($1::uuid[])"), [bi])).rows as { id: string; fp: string }[];
           if (JSON.stringify(usersNow) !== JSON.stringify(baseUsers)) problem = "pre-existing auth users changed";

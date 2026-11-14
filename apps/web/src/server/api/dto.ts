@@ -1,5 +1,5 @@
 import { effectiveStatus, formatAmount, minorToNumber, toPublicId } from "@sandbox/core";
-import type { CheckoutSession, Event, PaymentMethod, SetupSession, Transaction } from "@sandbox/db";
+import type { CheckoutSession, Event, PaymentMethod, SetupSession, Transaction, WebhookDelivery, WebhookDeliveryAttempt, WebhookEndpoint } from "@sandbox/db";
 
 /** Public DTOs. Internal columns (user_id, seq, token_hash, version) are never exposed. Amounts: decimal string plus a JSON-safe integer. */
 export function sessionDto(s: CheckoutSession, extra: { url?: string } = {}) {
@@ -89,5 +89,60 @@ export function setupSessionDto(s: SetupSession, extra: { url?: string; paymentM
     expires_at: s.expiresAt.toISOString(),
     created: s.createdAt.toISOString(),
     ...(extra.url ? { url: extra.url } : {}),
+  };
+}
+
+/** Webhook endpoint. The signing secret is never part of this view: it is returned once, by create and rotate-secret only. */
+export function webhookEndpointDto(e: WebhookEndpoint, extra: { secret?: string } = {}) {
+  return {
+    id: toPublicId("webhookEndpoint", e.id),
+    object: "webhook_endpoint" as const,
+    url: e.url,
+    description: e.description,
+    enabled_events: e.enabledEvents,
+    status: e.status,
+    max_attempts: e.maxAttempts,
+    failure_simulation: { mode: e.failureMode, remaining: e.failureModeRemaining, delay_seconds: e.failureDelaySeconds },
+    previous_secret_expires_at: e.previousSecretExpiresAt?.toISOString() ?? null,
+    created: e.createdAt.toISOString(),
+    updated: e.updatedAt.toISOString(),
+    ...(extra.secret ? { secret: extra.secret } : {}),
+  };
+}
+
+export function webhookAttemptDto(a: WebhookDeliveryAttempt) {
+  return {
+    attempt: a.attemptNo,
+    trigger: a.trigger,
+    outcome: a.outcome,
+    status_code: a.statusCode,
+    error_code: a.errorCode,
+    duration_ms: a.durationMs,
+    response_excerpt: a.responseExcerpt,
+    response_headers: a.responseHeaders,
+    simulated: a.injected,
+    stale: a.stale,
+    signature: a.signatureKind,
+    started: a.startedAt.toISOString(),
+    next_retry_at: a.nextRetryAt?.toISOString() ?? null,
+  };
+}
+
+export function webhookDeliveryDto(d: WebhookDelivery, attempts?: WebhookDeliveryAttempt[]) {
+  return {
+    id: toPublicId("webhookDelivery", d.id),
+    object: "webhook_delivery" as const,
+    event_id: toPublicId("event", d.eventId),
+    endpoint_id: toPublicId("webhookEndpoint", d.endpointId),
+    status: d.status,
+    attempt_count: d.attemptCount,
+    next_attempt_at: d.nextAttemptAt?.toISOString() ?? null,
+    manual_retry_pending: d.manualPending,
+    last_status_code: d.lastStatusCode,
+    last_error_code: d.lastErrorCode,
+    completed_at: d.completedAt?.toISOString() ?? null,
+    created: d.createdAt.toISOString(),
+    updated: d.updatedAt.toISOString(),
+    ...(attempts ? { attempts: attempts.map(webhookAttemptDto) } : {}),
   };
 }

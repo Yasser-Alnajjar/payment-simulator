@@ -183,7 +183,7 @@ describe.skipIf(!DB_TESTS_ENABLED)("payments, scenarios and state machines (Host
     // the index, not the application, blocks a second pending/succeeded payment
     await expect(t.sql("INSERT INTO transactions (id, user_id, checkout_session_id, amount_minor, currency, status, scenario) VALUES (gen_random_uuid(), $1, $2, 700, 'USD', 'pending', 'pending')", [a.userId, pend.uuid]))
       .rejects.toThrow(/transactions_one_active_per_session/);
-    await expect(t.sql("INSERT INTO events (id, user_id, type, subject_id, payload) VALUES (gen_random_uuid(), $1, 'payment.pending', $2, '{}')", [a.userId, q.id])).rejects.toThrow(/events_user_id_subject_id_type_key/);
+    await expect(t.sql("INSERT INTO events (id, user_id, type, subject_id, payload) VALUES (gen_random_uuid(), $1, 'payment.pending', $2, '{}')", [a.userId, q.id])).rejects.toThrow(/events_user_subject_type_occurrence_key/);
     expect(await code(t.sql("UPDATE transactions SET status = 'cancelled', version = 2, resolved_at = now() WHERE id = $1", [q.id]))).toBe("ok");
   });
 
@@ -192,7 +192,9 @@ describe.skipIf(!DB_TESTS_ENABLED)("payments, scenarios and state machines (Host
     const d = makeDeps(t, local);
     const s = await createSession(d, b, { expires_in: 300 });
     local.t += 301_000;
-    expect(await sweepAll(t.prisma, new Date(local.t), 500)).toBeGreaterThanOrEqual(1);
+    const swept = await sweepAll(t.prisma, new Date(local.t), 500);
+    expect(swept.settled).toBeGreaterThanOrEqual(1);
+    expect(swept.failed).toBe(0);
     expect((await session(b.userId, s.json.id.slice(3))).status).toBe("expired");
   });
 });

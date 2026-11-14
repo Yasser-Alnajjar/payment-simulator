@@ -79,6 +79,25 @@ async function settleSetup(db: PrismaClient, userId: string, id: string, now: Da
   return db.$transaction(async (tx) => { const s = await lockSetup(tx, userId, id); return s ? settleSetupLocked(tx, s, now) : null; }, TX_OPTIONS);
 }
 
+/**
+ * Global bounded sweep of expired setup sessions, run by the scheduler tick. Same lock-then-settle path as a read, so a concurrent
+ * read or cancel cannot produce a second event. A failing row is logged by id and skipped for this run.
+ */
+export async function sweepSetupAll(db: PrismaClient, now: Date, limit = 100, onlyUserIds?: string[]): Promise<{ settled: number; failed: number }> {
+  const due = await db.setupSession.findMany({ where: { status: "open", expiresAt: { lte: now }, ...(onlyUserIds ? { userId: { in: onlyUserIds } } : {}) }, select: { id: true, userId: true }, orderBy: { expiresAt: "asc" }, take: limit });
+  const r = { settled: 0, failed: 0 };
+  for (const d of due) {
+    try {
+      await settleSetup(db, d.userId, d.id, now);
+      r.settled++;
+    } catch (e) {
+      r.failed++;
+      console.error("sweep: setup session settlement failed", d.id, e instanceof Error ? e.name : "unknown");
+    }
+  }
+  return r;
+}
+
 export async function getSetupSession(db: PrismaClient, userId: string, publicId: string, now: Date): Promise<SetupSession> {
   const id = parsePublicId("setupSession", publicId);
   if (!id) throw notFound("Checkout session");

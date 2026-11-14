@@ -67,6 +67,16 @@ export async function call(deps: ApiDeps, method: string, path: string, o: Opts 
   else if ((m = p.match(/^\/api\/v1\/payment-methods\/([^/]+)\/disable$/)) && method === "POST") res = await handlers.disablePaymentMethod(req, deps, decodeURIComponent(m[1]!));
   else if ((m = p.match(/^\/api\/v1\/payment-methods\/([^/]+)$/)) && method === "GET") res = await handlers.getPaymentMethod(req, deps, decodeURIComponent(m[1]!));
   else if ((m = p.match(/^\/api\/v1\/payment-methods\/([^/]+)$/)) && method === "DELETE") res = await handlers.deletePaymentMethod(req, deps, decodeURIComponent(m[1]!));
+  else if (p === "/api/v1/webhook-endpoints" && method === "POST") res = await handlers.createWebhookEndpoint(req, deps);
+  else if (p === "/api/v1/webhook-endpoints" && method === "GET") res = await handlers.listWebhookEndpoints(req, deps);
+  else if ((m = p.match(/^\/api\/v1\/webhook-endpoints\/([^/]+)\/test$/)) && method === "POST") res = await handlers.sendWebhookTest(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/webhook-endpoints\/([^/]+)\/rotate-secret$/)) && method === "POST") res = await handlers.rotateWebhookSecret(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/webhook-endpoints\/([^/]+)$/)) && method === "GET") res = await handlers.getWebhookEndpoint(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/webhook-endpoints\/([^/]+)$/)) && method === "PATCH") res = await handlers.updateWebhookEndpoint(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/webhook-endpoints\/([^/]+)$/)) && method === "DELETE") res = await handlers.deleteWebhookEndpoint(req, deps, decodeURIComponent(m[1]!));
+  else if (p === "/api/v1/webhook-deliveries" && method === "GET") res = await handlers.listWebhookDeliveries(req, deps);
+  else if ((m = p.match(/^\/api\/v1\/webhook-deliveries\/([^/]+)\/retry$/)) && method === "POST") res = await handlers.retryWebhookDelivery(req, deps, decodeURIComponent(m[1]!));
+  else if ((m = p.match(/^\/api\/v1\/webhook-deliveries\/([^/]+)$/)) && method === "GET") res = await handlers.getWebhookDelivery(req, deps, decodeURIComponent(m[1]!));
   else throw new Error(`no route for ${method} ${p}`);
   const text = await res.text();
   let json: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any

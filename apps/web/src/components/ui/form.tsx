@@ -35,6 +35,8 @@ export function SandboxBanner() {
 const BADGE: Record<string, string> = {
   open: "bg-blue-50 text-blue-800", pending: "bg-amber-50 text-amber-800", completed: "bg-green-50 text-green-800", succeeded: "bg-green-50 text-green-800",
   failed: "bg-red-50 text-red-800", expired: "bg-neutral-100 text-neutral-700", cancelled: "bg-neutral-100 text-neutral-700",
+  retrying: "bg-amber-50 text-amber-800", enabled: "bg-green-50 text-green-800", disabled: "bg-neutral-100 text-neutral-700",
+  success: "bg-green-50 text-green-800", retryable: "bg-amber-50 text-amber-800", permanent: "bg-red-50 text-red-800", abandoned: "bg-neutral-100 text-neutral-700",
 };
 
 export function Badge({ status }: { status: string }) {

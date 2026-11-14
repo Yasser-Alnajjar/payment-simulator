@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 /** Public ids are a type prefix plus the internal uuid. A wrong prefix or any other shape is rejected. */
-export const ID_PREFIX = { session: "cs_", payment: "pay_", event: "evt_", paymentMethod: "pm_", setupSession: "seti_" } as const;
+export const ID_PREFIX = { session: "cs_", payment: "pay_", event: "evt_", paymentMethod: "pm_", setupSession: "seti_", webhookEndpoint: "we_", webhookDelivery: "whd_" } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

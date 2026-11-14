@@ -184,9 +184,12 @@ describe.skipIf(!DB_TESTS_ENABLED)("checkout sessions API (Hosted Supabase)", ()
     expect(fks.rows.map((r) => r.tbl).sort()).toEqual(expect.arrayContaining(["api_credentials", "checkout_sessions", "transactions", "events", "idempotency_keys", "api_rate_limits"]));
     const idx = await t.sql("select indexname from pg_indexes where schemaname = 'public'");
     const have = new Set(idx.rows.map((r) => r.indexname));
-    for (const n of ["checkout_sessions_user_seq_idx", "checkout_sessions_user_status_seq_idx", "checkout_sessions_open_expiry_idx", "transactions_one_active_per_session", "transactions_user_seq_idx", "events_user_seq_idx", "events_user_type_seq_idx", "events_user_id_subject_id_type_key"]) expect(have.has(n), n).toBe(true);
+    for (const n of ["checkout_sessions_user_seq_idx", "checkout_sessions_user_status_seq_idx", "checkout_sessions_open_expiry_idx", "transactions_one_active_per_session", "transactions_user_seq_idx", "events_user_seq_idx", "events_user_type_seq_idx", "events_user_subject_type_occurrence_key"]) expect(have.has(n), n).toBe(true);
     const fn = await t.sql("select proname, proconfig from pg_proc where pronamespace = 'public'::regnamespace and proname like 'sandbox\\_%guard'");
-    expect(fn.rows.length).toBe(4);
+    expect(fn.rows.map((r) => r.proname).sort()).toEqual([
+      "sandbox_audit_logs_guard", "sandbox_checkout_sessions_guard", "sandbox_events_guard", "sandbox_payment_methods_guard", "sandbox_setup_sessions_guard",
+      "sandbox_transactions_guard", "sandbox_webhook_attempts_guard", "sandbox_webhook_deliveries_guard", "sandbox_webhook_endpoints_guard",
+    ]);
     expect(fn.rows.every((r) => JSON.stringify(r.proconfig) === '["search_path=\\"\\""]')).toBe(true);
   });
 });

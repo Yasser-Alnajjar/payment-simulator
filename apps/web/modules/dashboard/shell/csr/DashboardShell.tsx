@@ -11,6 +11,7 @@ const NAV = [
   { href: "/sessions", label: "Checkout sessions" },
   { href: "/payments", label: "Payments" },
   { href: "/payment-methods", label: "Payment methods" },
+  { href: "/webhooks", label: "Webhooks" },
   { href: "/credentials", label: "Credentials" },
 ] as const;
 

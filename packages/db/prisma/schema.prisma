@@ -223,3 +223,90 @@ model ApiIdempotencyKey {
   @@id([userId, scope, key])
   @@map("api_idempotency_keys")
 }
+
+/// S4. A merchant's webhook endpoint. Soft-deleted (deleted_at) so delivery history survives; the secret is stored sealed only.
+model WebhookEndpoint {
+  id                      String    @id @db.Uuid
+  seq                     BigInt    @unique @default(autoincrement())
+  userId                  String    @map("user_id") @db.Uuid
+  url                     String
+  description             String?
+  /// "*" alone, or 1-32 event types.
+  enabledEvents           String[]  @map("enabled_events")
+  status                  String    @default("enabled")
+  secretSealed            String    @map("secret_sealed")
+  previousSecretSealed    String?   @map("previous_secret_sealed")
+  previousSecretExpiresAt DateTime? @map("previous_secret_expires_at") @db.Timestamptz(6)
+  maxAttempts             Int       @default(8) @map("max_attempts") @db.SmallInt
+  failureMode             String    @default("none") @map("failure_mode")
+  failureModeRemaining    Int?      @map("failure_mode_remaining")
+  failureDelaySeconds     Int?      @map("failure_delay_seconds")
+  version                 Int       @default(1)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+  deletedAt               DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@unique([id, userId])
+  @@map("webhook_endpoints")
+}
+
+/// S4. One delivery per (event, endpoint). PostgreSQL is the source of truth for its state, lease and retry schedule.
+model WebhookDelivery {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  seq            BigInt    @unique @default(autoincrement())
+  userId         String    @map("user_id") @db.Uuid
+  eventId        String    @map("event_id") @db.Uuid
+  endpointId     String    @map("endpoint_id") @db.Uuid
+  status         String    @default("pending")
+  attemptCount   Int       @default(0) @map("attempt_count") @db.SmallInt
+  nextAttemptAt  DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+  leaseToken     String?   @map("lease_token") @db.Uuid
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
+  manualPending  Boolean   @default(false) @map("manual_pending")
+  lastStatusCode Int?      @map("last_status_code") @db.SmallInt
+  lastErrorCode  String?   @map("last_error_code")
+  completedAt    DateTime? @map("completed_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([eventId, endpointId], map: "webhook_deliveries_event_endpoint_key")
+  @@unique([id, userId])
+  @@map("webhook_deliveries")
+}
+
+/// S4. Append-only attempt history (UPDATE/TRUNCATE rejected by trigger).
+model WebhookDeliveryAttempt {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  deliveryId      String    @map("delivery_id") @db.Uuid
+  attemptNo       Int       @map("attempt_no") @db.SmallInt
+  trigger         String
+  leaseToken      String?   @map("lease_token") @db.Uuid
+  startedAt       DateTime  @map("started_at") @db.Timestamptz(6)
+  durationMs      Int?      @map("duration_ms")
+  outcome         String
+  statusCode      Int?      @map("status_code") @db.SmallInt
+  errorCode       String?   @map("error_code")
+  responseExcerpt String?   @map("response_excerpt")
+  responseHeaders Json?     @map("response_headers")
+  injected        Boolean   @default(false)
+  stale           Boolean   @default(false)
+  signatureKind   String?   @map("signature_kind")
+  nextRetryAt     DateTime? @map("next_retry_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([deliveryId, attemptNo], map: "webhook_delivery_attempts_delivery_attempt_key")
+  @@map("webhook_delivery_attempts")
+}
+
+/// S4. Single-row scheduler lease (operational; no user_id). Prevents overlapping scheduler ticks.
+model SchedulerLease {
+  name           String    @id
+  leaseToken     String?   @map("lease_token") @db.Uuid
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
+  lastStartedAt  DateTime? @map("last_started_at") @db.Timestamptz(6)
+  lastFinishedAt DateTime? @map("last_finished_at") @db.Timestamptz(6)
+  lastSummary    Json?     @map("last_summary")
+
+  @@map("scheduler_leases")
+}

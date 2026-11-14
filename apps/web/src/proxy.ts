@@ -32,4 +32,5 @@ export async function proxy(request: NextRequest) {
 // /checkout/{token} is public and authorized by its secret token inside the page; it needs no dashboard session either.
 // /api/v1 is authenticated by API credentials inside its own handlers. It must never be redirected to /login or read
 // dashboard cookies, so the dashboard proxy does not run for it at all.
-export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|api/v1/|checkout/).*)"] };
+// /api/scheduler/tick is called by Supabase Cron with its own bearer secret (checked in the handler); same reasoning.
+export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico|api/v1/|api/scheduler/|checkout/).*)"] };

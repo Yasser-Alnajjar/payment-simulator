@@ -42,6 +42,7 @@ export const EVENT_TYPES = [
   "payment_method.default_updated",
   "payment_method.disabled",
   "payment_method.deleted",
+  "webhook_endpoint.test",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 

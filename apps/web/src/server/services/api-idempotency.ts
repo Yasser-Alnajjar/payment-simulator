@@ -2,7 +2,7 @@ import type { Tx } from "../lifecycle";
 import { ApiError } from "../api/errors";
 
 export const API_IDEMPOTENCY_TTL_HOURS = 24;
-export type IdemScope = "payment_method.create" | "setup_session.create" | "charge.create";
+export type IdemScope = "payment_method.create" | "setup_session.create" | "charge.create" | "webhook_endpoint.create";
 
 export interface IdemInput { key: string; requestHash: string }
 export interface Replay { status: number; response: unknown; tokenEnc: string | null; resourceId: string }

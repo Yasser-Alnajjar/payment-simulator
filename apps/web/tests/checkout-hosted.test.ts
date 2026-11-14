@@ -23,7 +23,7 @@ describe.skipIf(!DB_TESTS_ENABLED)("hosted checkout + dashboard services (Hosted
   it("view exposes only public fields and reflects the session", async () => {
     const s = await open({ amount: "19.99", currency: "EUR", external_reference: "order-7", metadata: { secret_note: "x" } });
     const v = await getCheckoutView(t.prisma, s.token, now());
-    expect(v).toEqual({ status: "open", amount: "19.99", currency: "EUR", reference: "order-7", presetScenario: null, expiresAt: expect.any(String), payment: null, canPay: true });
+    expect(v).toEqual({ status: "open", amount: "19.99", currency: "EUR", reference: "order-7", presetScenario: null, expiresAt: expect.any(String), payment: null, canPay: true, customer: null, cardAllowed: true, savedCards: [] });
     const text = JSON.stringify(v);
     expect(text).not.toContain(a.userId);
     expect(text).not.toContain(s.token);
