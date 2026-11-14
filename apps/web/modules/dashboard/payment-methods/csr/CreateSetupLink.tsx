@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Actions } from "@/actions/client";
-import { Button, Card } from "@components/ui/form";
+import { Button, ButtonLink, Card, FieldLabel, FormError, Input, Notice, SecretBlock } from "@components/ui/form";
 
 /** Creates a hosted setup checkout (mode = setup). The link holds a secret token, so it is shown once. */
 export function CreateSetupLink({ canCreate }: { canCreate: boolean }) {
@@ -11,7 +11,7 @@ export function CreateSetupLink({ canCreate }: { canCreate: boolean }) {
   const [created, setCreated] = useState<{ id: string; url: string }>();
   return (
     <Card title="Create a hosted setup link">
-      <p className="mb-3 text-sm text-neutral-600">A customer opens the link and adds a test card. Nothing is charged and no payment is created.</p>
+      <p className="mb-3 text-sm text-neutral-500">A customer opens the link and adds a test card. Nothing is charged and no payment is created.</p>
       <form
         className="flex flex-wrap items-end gap-3 text-sm"
         onSubmit={(e) => {
@@ -25,17 +25,17 @@ export function CreateSetupLink({ canCreate }: { canCreate: boolean }) {
           });
         }}
       >
-        <label className="block min-w-[14rem] flex-1"><span className="mb-1 block font-medium">Customer reference</span>
-          <input name="customer" required maxLength={128} className="w-full rounded-md border border-neutral-300 px-3 py-2 text-base sm:text-sm" /></label>
+        <FieldLabel label="Customer reference" className="min-w-[14rem] flex-1"><Input name="customer" required maxLength={128} /></FieldLabel>
         <Button type="submit" disabled={pending || !canCreate}>{pending ? "Creating…" : "Create setup link"}</Button>
       </form>
-      {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
+      <FormError className="mt-3">{error}</FormError>
       {created && (
-        <div className="mt-3 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-          <p className="font-semibold">Setup link created. It contains a secret and will not be shown again.</p>
-          <code className="block break-all rounded bg-white p-2">{created.url}</code>
-          <a href={created.url} target="_blank" rel="noopener" className="inline-block rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700">Open setup page</a>
-        </div>
+        <Notice tone="warning" title="Setup link created. It contains a secret and will not be shown again." className="mt-3">
+          <div className="mt-2 space-y-3">
+            <SecretBlock value={created.url} />
+            <ButtonLink href={created.url} external>Open setup page</ButtonLink>
+          </div>
+        </Notice>
       )}
     </Card>
   );

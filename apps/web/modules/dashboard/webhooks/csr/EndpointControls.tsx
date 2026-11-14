@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Actions } from "@/actions/client";
 import type { ActionResult } from "@/lib/types/common";
-import { Button } from "@components/ui/form";
+import { Button, FormError } from "@components/ui/form";
 import { SecretOnce } from "./SecretOnce";
 
 /** Enable/disable, send a test event, rotate the secret, delete. The server re-validates ownership and state. */
@@ -33,7 +33,7 @@ export function EndpointControls({ id, status }: { id: string; status: string })
         }}>Rotate secret</Button>
         <Button variant="danger" disabled={pending} onClick={() => { if (window.confirm("Delete this endpoint? Pending deliveries are cancelled; history is kept.")) run(() => Actions.Webhooks.deleteEndpointAction({ id }), undefined, "/webhooks"); }}>Delete</Button>
       </div>
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      <FormError>{error}</FormError>
       {info && <p className="text-sm text-neutral-600">{info}</p>}
       {secret && <SecretOnce secret={secret} title="New signing secret. Copy it now: it will not be shown again. The previous secret also signs for 24 hours." />}
     </div>

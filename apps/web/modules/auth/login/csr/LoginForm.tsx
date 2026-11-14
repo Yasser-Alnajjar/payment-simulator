@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Actions } from "@/actions/client";
-import { Button, Field } from "@components/ui/form";
+import { Button, Field, FormError } from "@components/ui/form";
 import { AuthShell } from "../../csr/AuthShell";
 
 export function LoginForm() {
@@ -13,26 +13,26 @@ export function LoginForm() {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [pending, start] = useTransition();
   return (
-    <AuthShell title="Sign in">
+    <AuthShell title="Sign in" description="Access your sandbox dashboard and API credentials." footer={<>New here? <Link href="/register" className="font-medium text-neutral-900 underline">Create account</Link></>}>
       <form
         method="post"
-        className="space-y-3"
+        className="space-y-4"
         onSubmit={(e) => {
           e.preventDefault();
           const f = new FormData(e.currentTarget);
           start(async () => {
             const r = await Actions.Auth.signIn({ email: f.get("email"), password: f.get("password") });
-            if (r.ok) router.push("/credentials");
+            if (r.ok) router.push("/");
             else { setError(r.error); setFields(r.fieldErrors ?? {}); }
           });
         }}
       >
         <Field label="Email" name="email" type="email" autoComplete="email" required error={fields.email} />
         <Field label="Password" name="password" type="password" autoComplete="current-password" required />
-        {error && !Object.keys(fields).length && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" disabled={pending} className="w-full">Sign in</Button>
+        {!Object.keys(fields).length && <FormError>{error}</FormError>}
+        <Button type="submit" disabled={pending} className="w-full">{pending ? "Signing in…" : "Sign in"}</Button>
       </form>
-      <p className="text-sm"><Link href="/forgot-password" className="underline">Forgot password?</Link> · <Link href="/register" className="underline">Create account</Link></p>
+      <p className="text-center text-sm"><Link href="/forgot-password" className="text-neutral-600 underline hover:text-neutral-900">Forgot password?</Link></p>
     </AuthShell>
   );
 }

@@ -12,7 +12,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="en" suppressHydrationWarning>
       <body
         suppressHydrationWarning
-        className="min-h-screen bg-neutral-50 text-neutral-900 antialiased"
+        className="min-h-screen bg-canvas text-neutral-900 antialiased"
       >
         {children}
       </body>

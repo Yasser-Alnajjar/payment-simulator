@@ -7,7 +7,7 @@ import type { CheckoutView } from "@/server/services/checkout-public";
 import { DELAY_SCENARIOS, fmtTime, scenarioLabel, SCENARIO_OPTIONS } from "@/lib/scenarios";
 import type { ActionResult } from "@/lib/types/common";
 import { BEHAVIOR_LABEL, BRAND_LABEL } from "@/lib/test-cards";
-import { Button } from "@components/ui/form";
+import { Button, FieldLabel, FormError, Input, Notice } from "@components/ui/form";
 import { CardForm } from "@components/ui/card-form";
 
 const FAILURE_TEXT: Record<string, string> = {
@@ -52,60 +52,62 @@ export function CheckoutPanel({ token, view }: { token: string; view: CheckoutVi
   const reason = view.payment?.failureCode ? FAILURE_TEXT[view.payment.failureCode] ?? "The payment did not complete." : "The payment did not complete.";
 
   return (
-    <div className="space-y-5">
-      <div className="text-center">
+    <div className="grid md:grid-cols-[2fr_3fr]">
+      <div className="border-b border-line bg-sidebar p-6 sm:p-8 md:border-b-0 md:border-r">
         <p className="text-sm text-neutral-500">Amount due</p>
-        <p className="text-4xl font-semibold tracking-tight" aria-label={`${view.amount} ${view.currency}`}>{view.amount} <span className="text-xl font-medium text-neutral-500">{view.currency}</span></p>
-        {view.reference && <p className="mt-1 break-all text-sm text-neutral-500">Reference: {view.reference}</p>}
+        <p className="tabular mt-1 text-4xl font-semibold tracking-tight text-neutral-900" aria-label={`${view.amount} ${view.currency}`}>{view.amount} <span className="text-lg font-medium text-neutral-500">{view.currency}</span></p>
+        {view.reference && <p className="mt-3 break-all text-sm text-neutral-500">Reference <span className="font-mono text-xs text-neutral-900">{view.reference}</span></p>}
+        {view.status === "open" && <p className="mt-1 text-sm text-neutral-500">Expires <span className="text-neutral-900">{fmtTime(view.expiresAt)}</span></p>}
       </div>
+      <div className="space-y-5 p-6 sm:p-8">
 
       {view.status === "completed" && (
-        <div role="status" className="rounded-md bg-green-50 p-4 text-center text-green-900"><p className="font-semibold">Payment successful</p><p className="text-sm">{view.payment?.card ? `Paid with test card ending ${view.payment.card.last4}. ` : ""}This is a simulated payment. You can close this page.</p></div>
+        <Notice tone="success" className="p-4 text-center"><p className="font-semibold">Payment successful</p><p>{view.payment?.card ? `Paid with test card ending ${view.payment.card.last4}. ` : ""}This is a simulated payment. You can close this page.</p></Notice>
       )}
       {view.status === "expired" && (
-        <div role="status" className="rounded-md bg-neutral-100 p-4 text-center"><p className="font-semibold">This checkout has expired</p><p className="text-sm text-neutral-600">{view.payment?.status === "cancelled" ? `${reason} ` : ""}Return to the merchant to start a new one.</p></div>
+        <Notice className="p-4 text-center"><p className="font-semibold">This checkout has expired</p><p>{view.payment?.status === "cancelled" ? `${reason} ` : ""}Return to the merchant to start a new one.</p></Notice>
       )}
       {view.status === "cancelled" && (
-        <div role="status" className="rounded-md bg-neutral-100 p-4 text-center"><p className="font-semibold">This checkout was cancelled</p><p className="text-sm text-neutral-600">No payment was taken.</p></div>
+        <Notice className="p-4 text-center"><p className="font-semibold">This checkout was cancelled</p><p>No payment was taken.</p></Notice>
       )}
 
       {waiting && (
-        <div role="status" aria-live="polite" className="rounded-md bg-amber-50 p-4 text-center text-amber-900">
+        <Notice tone="warning" className="p-4 text-center">
           <p className="font-semibold">Payment pending</p>
-          <p className="text-sm">{view.payment?.resolveAt ? `Resolves automatically at ${fmtTime(view.payment.resolveAt)}. ` : "Waiting for the merchant to resolve it in the dashboard. "}This page updates by itself.</p>
-        </div>
+          <p>{view.payment?.resolveAt ? `Resolves automatically at ${fmtTime(view.payment.resolveAt)}. ` : "Waiting for the merchant to resolve it in the dashboard. "}This page updates by itself.</p>
+        </Notice>
       )}
 
       {view.status === "open" && view.payment && (view.payment.status === "failed" || view.payment.status === "cancelled") && (
-        <div role="alert" className="rounded-md bg-red-50 p-3 text-center text-sm text-red-800">{reason} You can try again.</div>
+        <Notice tone="error" className="text-center">{reason} You can try again.</Notice>
       )}
 
       {view.canPay && (
         <div className="space-y-4">
           {view.cardAllowed && (
             <fieldset className="space-y-2">
-              <legend className="mb-1 text-sm font-medium">Pay with</legend>
+              <legend className="mb-2 text-sm font-medium text-neutral-900">Pay with</legend>
               {view.savedCards.map((c) => (
-                <label key={c.id} className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm ${choice === c.id ? "border-neutral-900 bg-neutral-50" : "border-neutral-200"} ${c.status !== "active" ? "opacity-60" : ""}`}>
-                  <input type="radio" name="method" value={c.id} disabled={c.status !== "active"} checked={choice === c.id} onChange={() => setChoice(c.id)} className="mt-1" />
+                <label key={c.id} className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent hover:bg-subtle ${choice === c.id ? "border-accent bg-subtle" : "border-line"} ${c.status !== "active" ? "opacity-60" : ""}`}>
+                  <input type="radio" className="mt-1 accent-accent" name="method" value={c.id} disabled={c.status !== "active"} checked={choice === c.id} onChange={() => setChoice(c.id)} />
                   <span><span className="block font-medium">{BRAND_LABEL[c.brand] ?? c.brand} ending {c.last4}{c.isDefault ? " · default" : ""}</span>
-                    <span className="text-neutral-500">Expires {String(c.expMonth).padStart(2, "0")}/{c.expYear} · test card · {c.status === "active" ? BEHAVIOR_LABEL[c.behavior] ?? c.behavior : "expired"}</span></span>
+                    <span className="text-xs text-neutral-500">Expires {String(c.expMonth).padStart(2, "0")}/{c.expYear} · test card · {c.status === "active" ? BEHAVIOR_LABEL[c.behavior] ?? c.behavior : "expired"}</span></span>
                 </label>
               ))}
-              <label className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm ${choice === "new" ? "border-neutral-900 bg-neutral-50" : "border-neutral-200"}`}>
-                <input type="radio" name="method" value="new" checked={choice === "new"} onChange={() => setChoice("new")} className="mt-1" />
-                <span><span className="block font-medium">Use a new test card</span><span className="text-neutral-500">The outcome comes from the test card you enter.</span></span>
+              <label className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent hover:bg-subtle ${choice === "new" ? "border-accent bg-subtle" : "border-line"}`}>
+                <input type="radio" className="mt-1 accent-accent" name="method" value="new" checked={choice === "new"} onChange={() => setChoice("new")} />
+                <span><span className="block font-medium">Use a new test card</span><span className="text-xs text-neutral-500">The outcome comes from the test card you enter.</span></span>
               </label>
-              <label className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm ${choice === "simulated" ? "border-neutral-900 bg-neutral-50" : "border-neutral-200"}`}>
-                <input type="radio" name="method" value="simulated" checked={choice === "simulated"} onChange={() => setChoice("simulated")} className="mt-1" />
-                <span><span className="block font-medium">No card: choose the outcome</span><span className="text-neutral-500">Pick a simulated result directly.</span></span>
+              <label className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent hover:bg-subtle ${choice === "simulated" ? "border-accent bg-subtle" : "border-line"}`}>
+                <input type="radio" className="mt-1 accent-accent" name="method" value="simulated" checked={choice === "simulated"} onChange={() => setChoice("simulated")} />
+                <span><span className="block font-medium">No card: choose the outcome</span><span className="text-xs text-neutral-500">Pick a simulated result directly.</span></span>
               </label>
             </fieldset>
           )}
 
           {view.cardAllowed && choice !== "new" && choice !== "simulated" && (
             <div className="space-y-3">
-              {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+              <FormError>{error}</FormError>
               <Button type="button" disabled={pending} className="w-full py-2.5" onClick={() => act(() => Actions.Checkout.payWithCardAction({ token, saved: choice }))}>{pending ? "Processing…" : `Pay ${view.amount} ${view.currency}`}</Button>
             </div>
           )}
@@ -114,7 +116,7 @@ export function CheckoutPanel({ token, view }: { token: string; view: CheckoutVi
             <CardForm
               submitLabel={`Pay ${view.amount} ${view.currency}`} pendingLabel="Processing…" disabled={pending}
               extra={view.customer ? (
-                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={save} onChange={(e) => setSave(e.target.checked)} /> Save this test card for this customer</label>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="accent-accent" checked={save} onChange={(e) => setSave(e.target.checked)} /> Save this test card for this customer</label>
               ) : undefined}
               onSubmit={async (v) => {
                 const r = await Actions.Checkout.payWithCardAction({ token, card: v, save: view.customer ? save : false });
@@ -133,36 +135,35 @@ export function CheckoutPanel({ token, view }: { token: string; view: CheckoutVi
               }}
             >
               {view.presetScenario ? (
-                <p className="rounded-md bg-neutral-50 p-3 text-sm">Simulated outcome: <strong>{scenarioLabel(view.presetScenario)}</strong> <span className="text-neutral-500">(set by the merchant)</span></p>
+                <p className="rounded-md border border-line bg-subtle p-3 text-sm">Simulated outcome: <strong>{scenarioLabel(view.presetScenario)}</strong> <span className="text-xs text-neutral-500">(set by the merchant)</span></p>
               ) : (
                 <fieldset className="space-y-2">
-                  <legend className="mb-1 text-sm font-medium">Choose the simulated outcome</legend>
+                  <legend className="mb-2 text-sm font-medium text-neutral-900">Choose the simulated outcome</legend>
                   {SCENARIO_OPTIONS.map((o) => (
-                    <label key={o.value} className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm ${scenario === o.value ? "border-neutral-900 bg-neutral-50" : "border-neutral-200"}`}>
-                      <input type="radio" name="scenario" value={o.value} checked={scenario === o.value} onChange={() => setScenario(o.value)} className="mt-1" />
-                      <span><span className="block font-medium">{o.label}</span><span className="text-neutral-500">{o.hint}</span></span>
+                    <label key={o.value} className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent hover:bg-subtle ${scenario === o.value ? "border-accent bg-subtle" : "border-line"}`}>
+                      <input type="radio" className="mt-1 accent-accent" name="scenario" value={o.value} checked={scenario === o.value} onChange={() => setScenario(o.value)} />
+                      <span><span className="block font-medium">{o.label}</span><span className="text-xs text-neutral-500">{o.hint}</span></span>
                     </label>
                   ))}
                 </fieldset>
               )}
               {DELAY_SCENARIOS.includes(scenario) && (
-                <label className="block text-sm"><span className="mb-1 block font-medium">Delay before the outcome (seconds)</span>
-                  <input type="number" min={1} max={3600} step={1} value={delay} onChange={(e) => setDelay(Math.round(Number(e.target.value)) || 1)} className="w-28 rounded-md border border-neutral-300 px-3 py-2" /></label>
+                <FieldLabel label="Delay before the outcome (seconds)"><Input type="number" min={1} max={3600} step={1} value={delay} onChange={(e) => setDelay(Math.round(Number(e.target.value)) || 1)} className="!w-28" /></FieldLabel>
               )}
-              {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+              <FormError>{error}</FormError>
               <Button type="submit" disabled={pending} className="w-full py-2.5">{pending ? "Processing…" : `Pay ${view.amount} ${view.currency}`}</Button>
             </form>
           )}
         </div>
       )}
-      {!view.canPay && error && <p role="alert" className="text-center text-sm text-red-600">{error}</p>}
+      {!view.canPay && <FormError className="text-center">{error}</FormError>}
 
       {view.status === "open" && (
-        <div className="flex flex-col items-center gap-1 text-sm text-neutral-500">
-          <span>Expires {fmtTime(view.expiresAt)}</span>
-          <button type="button" disabled={pending} className="underline hover:text-neutral-900 disabled:opacity-50" onClick={() => { if (window.confirm("Cancel this checkout?")) act(() => Actions.Checkout.cancelCheckoutAction({ token })); }}>Cancel checkout</button>
+        <div className="flex justify-center border-t border-line pt-4 text-sm text-neutral-500">
+          <button type="button" disabled={pending} className="rounded underline hover:text-neutral-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50" onClick={() => { if (window.confirm("Cancel this checkout?")) act(() => Actions.Checkout.cancelCheckoutAction({ token })); }}>Cancel checkout</button>
         </div>
       )}
+      </div>
     </div>
   );
 }

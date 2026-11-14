@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Actions } from "@/actions/client";
 import type { ActionResult } from "@/lib/types/common";
-import { Button } from "@components/ui/form";
+import { Button, FormError } from "@components/ui/form";
 
 function useAction() {
   const router = useRouter();
@@ -23,7 +23,7 @@ export function CancelSession({ sessionId }: { sessionId: string }) {
   return (
     <div className="space-y-1">
       <Button variant="danger" disabled={pending} onClick={() => run(() => Actions.Dashboard.cancelSessionAction({ sessionId }))}>Cancel session</Button>
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      <FormError>{error}</FormError>
     </div>
   );
 }
@@ -39,7 +39,7 @@ export function ResolvePayment({ paymentId }: { paymentId: string }) {
         <Button variant="ghost" disabled={pending} onClick={() => go("failed")}>Mark failed</Button>
         <Button variant="ghost" disabled={pending} onClick={() => go("cancelled")}>Cancel payment</Button>
       </div>
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      <FormError>{error}</FormError>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Actions } from "@/actions/client";
-import { Button, Field } from "@components/ui/form";
+import { Button, Field, Notice } from "@components/ui/form";
 import { AuthShell } from "../../csr/AuthShell";
 
 export function ForgotPasswordForm() {
@@ -11,13 +11,13 @@ export function ForgotPasswordForm() {
   const [error, setError] = useState<string>();
   const [pending, start] = useTransition();
   return (
-    <AuthShell title="Reset password">
+    <AuthShell title="Reset password" description="Enter your email and we will send a reset link." footer={<Link href="/login" className="font-medium text-neutral-900 underline">Back to sign in</Link>}>
       {done ? (
-        <p className="text-sm">If an account exists for that address, a reset link is on its way.</p>
+        <Notice tone="success">If an account exists for that address, a reset link is on its way.</Notice>
       ) : (
         <form
           method="post"
-          className="space-y-3"
+          className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault();
             const f = new FormData(e.currentTarget);
@@ -29,10 +29,9 @@ export function ForgotPasswordForm() {
           }}
         >
           <Field label="Email" name="email" type="email" required error={error} />
-          <Button type="submit" disabled={pending} className="w-full">Send reset link</Button>
+          <Button type="submit" disabled={pending} className="w-full">{pending ? "Sending…" : "Send reset link"}</Button>
         </form>
       )}
-      <p className="text-sm"><Link href="/login" className="underline">Back to sign in</Link></p>
     </AuthShell>
   );
 }

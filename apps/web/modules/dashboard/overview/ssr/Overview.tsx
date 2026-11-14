@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/server/db";
 import { getOverview } from "@/server/services/dashboard";
 import { scenarioLabel, fmtTime } from "@/lib/scenarios";
-import { Badge, Card } from "@components/ui/form";
+import { Badge, ButtonLink, Card, EmptyState, MoreLink, Notice, PageHeader, Row, RowList, Stat, StatStrip } from "@components/ui/form";
 import { DashboardFrame } from "../../shell";
 
 const STATUS_ORDER = ["open", "completed", "expired", "cancelled"] as const;
@@ -15,63 +15,58 @@ export const Overview = async () => (
       const empty = Object.keys(o.sessions).length === 0;
       return (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <h1 className="text-xl font-semibold">Overview</h1>
-            <Link href="/sessions" className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700">Create a test checkout</Link>
-          </div>
-          {empty && (
-            <Card>
-              <p className="text-sm text-neutral-600">No checkout sessions yet. Create one through the API with your credentials, or start a test checkout from the dashboard.</p>
-            </Card>
-          )}
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Card title="Checkout sessions">
-              <dl className="grid grid-cols-2 gap-2 text-sm">
-                {STATUS_ORDER.map((s) => (<div key={s}><dt><Badge status={s} /></dt><dd className="text-2xl font-semibold">{o.sessions[s] ?? 0}</dd></div>))}
-              </dl>
-            </Card>
-            <Card title="Payments">
-              <dl className="grid grid-cols-2 gap-2 text-sm">
-                {PAY_ORDER.map((s) => (<div key={s}><dt><Badge status={s} /></dt><dd className="text-2xl font-semibold">{o.payments[s] ?? 0}</dd></div>))}
-              </dl>
-            </Card>
-          </div>
+          <PageHeader title="Overview" description="Activity across your checkout sessions and payments in the sandbox." action={<ButtonLink href="/sessions">Create a test checkout</ButtonLink>} />
+          {empty && <Notice>No checkout sessions yet. Create one through the API with your credentials, or start a test checkout from the dashboard.</Notice>}
+
+          <section aria-labelledby="ov-sessions" className="space-y-2">
+            <h2 id="ov-sessions" className="text-sm font-semibold text-neutral-900">Checkout sessions</h2>
+            <StatStrip>{STATUS_ORDER.map((s) => <Stat key={s} label={s} status={s} value={o.sessions[s] ?? 0} />)}</StatStrip>
+          </section>
+          <section aria-labelledby="ov-payments" className="space-y-2">
+            <h2 id="ov-payments" className="text-sm font-semibold text-neutral-900">Payments</h2>
+            <StatStrip>{PAY_ORDER.map((s) => <Stat key={s} label={s} status={s} value={o.payments[s] ?? 0} />)}</StatStrip>
+          </section>
+
           {o.succeededVolume.length > 0 && (
-            <Card title="Succeeded volume (simulated)">
-              <ul className="flex flex-wrap gap-x-8 gap-y-1 text-sm">
-                {o.succeededVolume.map((v) => (<li key={v.currency}><span className="font-semibold">{v.amount} {v.currency}</span> <span className="text-neutral-500">across {v.count} payment{v.count === 1 ? "" : "s"}</span></li>))}
+            <Card title="Succeeded volume" description="Simulated, by currency">
+              <ul className="flex flex-wrap gap-x-10 gap-y-3 text-sm">
+                {o.succeededVolume.map((v) => (<li key={v.currency}><span className="tabular text-lg font-semibold tracking-tight">{v.amount} {v.currency}</span><span className="block text-xs text-neutral-500">across {v.count} payment{v.count === 1 ? "" : "s"}</span></li>))}
               </ul>
             </Card>
           )}
-          <Card title="Recent checkout sessions">
-            {o.recentSessions.length === 0 ? <p className="text-sm text-neutral-500">Nothing yet.</p> : (
-              <ul className="divide-y divide-neutral-100 text-sm">
-                {o.recentSessions.map((s) => (
-                  <li key={s.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                    <Link href={`/sessions/${s.id}`} className="font-mono text-xs underline">{s.id}</Link>
-                    <span>{s.amount} {s.currency}</span>
-                    <span className="text-neutral-500">{scenarioLabel(s.scenario)}</span>
-                    <Badge status={s.status} />
-                    <span className="text-neutral-400">{fmtTime(s.created)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-          <Card title="Recent payments">
-            {o.recentPayments.length === 0 ? <p className="text-sm text-neutral-500">Nothing yet.</p> : (
-              <ul className="divide-y divide-neutral-100 text-sm">
-                {o.recentPayments.map((p) => (
-                  <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                    <span className="font-mono text-xs">{p.id}</span>
-                    <span>{p.amount} {p.currency}</span>
-                    <Badge status={p.status} />
-                    <span className="text-neutral-400">{fmtTime(p.created)}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+
+          <div className="grid gap-6 xl:grid-cols-2">
+            <Card flush title="Recent checkout sessions" action={<Link href="/sessions" className="text-[13px] text-neutral-500 hover:text-neutral-900">View all</Link>}>
+              {o.recentSessions.length === 0 ? <EmptyState>Nothing yet.</EmptyState> : (
+                <RowList>
+                  {o.recentSessions.map((s) => (
+                    <Row key={s.id} className="justify-between">
+                      <div className="min-w-0">
+                        <Link href={`/sessions/${s.id}`} className="block truncate font-mono text-xs font-medium hover:underline">{s.id}</Link>
+                        <span className="text-xs text-neutral-500">{scenarioLabel(s.scenario)} · {fmtTime(s.created)}</span>
+                      </div>
+                      <div className="flex items-center gap-3"><span className="tabular whitespace-nowrap">{s.amount} {s.currency}</span><Badge status={s.status} /></div>
+                    </Row>
+                  ))}
+                </RowList>
+              )}
+            </Card>
+            <Card flush title="Recent payments" action={<Link href="/payments" className="text-[13px] text-neutral-500 hover:text-neutral-900">View all</Link>}>
+              {o.recentPayments.length === 0 ? <EmptyState>Nothing yet.</EmptyState> : (
+                <RowList>
+                  {o.recentPayments.map((p) => (
+                    <Row key={p.id} className="justify-between">
+                      <div className="min-w-0">
+                        <span className="block truncate font-mono text-xs font-medium">{p.id}</span>
+                        <span className="text-xs text-neutral-500">{fmtTime(p.created)}</span>
+                      </div>
+                      <div className="flex items-center gap-3"><span className="tabular whitespace-nowrap">{p.amount} {p.currency}</span><Badge status={p.status} /></div>
+                    </Row>
+                  ))}
+                </RowList>
+              )}
+            </Card>
+          </div>
         </>
       );
     }}

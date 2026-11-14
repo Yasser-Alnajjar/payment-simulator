@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Actions } from "@/actions/client";
 import { CURRENCY_CHOICES, SCENARIO_OPTIONS } from "@/lib/scenarios";
-import { Button, Card } from "@components/ui/form";
+import { Button, ButtonLink, Card, FieldLabel, FormError, Input, Notice, SecretBlock, Select } from "@components/ui/form";
 
 /** Creates a session through the same service as the API. The checkout URL holds the secret token, so it is shown once. */
 export function CreateTestSession({ canCreate }: { canCreate: boolean }) {
@@ -15,7 +15,7 @@ export function CreateTestSession({ canCreate }: { canCreate: boolean }) {
 
   return (
     <Card title="Create a test checkout">
-      {!canCreate && <p className="mb-3 rounded-md bg-amber-50 p-3 text-sm text-amber-900">Verify your email address to create test checkouts.</p>}
+      {!canCreate && <Notice tone="warning" className="mb-3">Verify your email address to create test checkouts.</Notice>}
       <form
         className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4"
         onSubmit={(e) => {
@@ -32,29 +32,27 @@ export function CreateTestSession({ canCreate }: { canCreate: boolean }) {
           });
         }}
       >
-        <label className="block"><span className="mb-1 block font-medium">Amount</span>
-          <input name="amount" required inputMode="decimal" defaultValue="10.00" className="w-full rounded-md border border-neutral-300 px-3 py-2" /></label>
-        <label className="block"><span className="mb-1 block font-medium">Currency</span>
-          <select name="currency" defaultValue="USD" className="w-full rounded-md border border-neutral-300 px-3 py-2">{CURRENCY_CHOICES.map((c) => <option key={c}>{c}</option>)}</select></label>
-        <label className="block"><span className="mb-1 block font-medium">Scenario</span>
-          <select name="scenario" defaultValue="" className="w-full rounded-md border border-neutral-300 px-3 py-2">
+        <FieldLabel label="Amount"><Input name="amount" required inputMode="decimal" defaultValue="10.00" /></FieldLabel>
+        <FieldLabel label="Currency"><Select name="currency" defaultValue="USD">{CURRENCY_CHOICES.map((c) => <option key={c}>{c}</option>)}</Select></FieldLabel>
+        <FieldLabel label="Scenario">
+          <Select name="scenario" defaultValue="">
             <option value="">Customer chooses on the page</option>
             {SCENARIO_OPTIONS.map((o) => <option key={o.value} value={o.value}>Fixed: {o.label}</option>)}
-          </select></label>
-        <label className="block"><span className="mb-1 block font-medium">Reference (optional)</span>
-          <input name="reference" maxLength={255} className="w-full rounded-md border border-neutral-300 px-3 py-2" /></label>
+          </Select></FieldLabel>
+        <FieldLabel label="Reference (optional)"><Input name="reference" maxLength={255} /></FieldLabel>
         <div className="sm:col-span-2 lg:col-span-4"><Button type="submit" disabled={pending || !canCreate}>{pending ? "Creating…" : "Create checkout"}</Button></div>
       </form>
-      {error && <p role="alert" className="mt-3 text-sm text-red-600">{error}</p>}
+      <FormError className="mt-3">{error}</FormError>
       {created && (
-        <div className="mt-3 space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-          <p className="font-semibold">Checkout link created. It contains a secret and will not be shown again.</p>
-          <code className="block break-all rounded bg-white p-2">{created.url}</code>
-          <div className="flex gap-2">
-            <a href={created.url} target="_blank" rel="noopener" className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-neutral-700">Open checkout</a>
-            <Button variant="ghost" onClick={() => setCreated(undefined)}>Dismiss</Button>
+        <Notice tone="warning" title="Checkout link created. It contains a secret and will not be shown again." className="mt-3 space-y-2">
+          <div className="mt-2 space-y-3">
+            <SecretBlock value={created.url} />
+            <div className="flex gap-2">
+              <ButtonLink href={created.url} external>Open checkout</ButtonLink>
+              <Button variant="ghost" onClick={() => setCreated(undefined)}>Dismiss</Button>
+            </div>
           </div>
-        </div>
+        </Notice>
       )}
     </Card>
   );

@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Actions } from "@/actions/client";
-import { Button, Card } from "@components/ui/form";
+import { Button, Card, FieldLabel, FormError, Input, Select } from "@components/ui/form";
 
 const MODES: { value: string; label: string; help: string }[] = [
   { value: "none", label: "None (normal delivery)", help: "" },
@@ -25,7 +25,7 @@ export function FailureSimulation({ id, mode, remaining, delaySeconds }: { id: s
   const [error, setError] = useState<string>();
   return (
     <Card title="Failure simulation">
-      <form className="space-y-3 text-sm" onSubmit={(e) => {
+      <form className="space-y-4 text-sm" onSubmit={(e) => {
         e.preventDefault();
         const f = new FormData(e.currentTarget);
         const num = (k: string) => { const v = String(f.get(k) ?? "").trim(); return v === "" ? null : Number(v); };
@@ -39,16 +39,14 @@ export function FailureSimulation({ id, mode, remaining, delaySeconds }: { id: s
           router.refresh();
         });
       }}>
-        <select value={sel} onChange={(e) => setSel(e.target.value)} className="w-full rounded-md border border-neutral-300 px-3 py-2">
+        <FieldLabel label="Mode"><Select value={sel} onChange={(e) => setSel(e.target.value)}>
           {MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </select>
+        </Select></FieldLabel>
         {MODES.find((m) => m.value === sel)?.help && <p className="text-neutral-600">{MODES.find((m) => m.value === sel)!.help}</p>}
-        {COUNTED.has(sel) && <label className="block"><span className="mb-1 block font-medium">Number of attempts to affect, then recover (empty = until turned off)</span>
-          <input name="remaining" type="number" min={1} max={100} defaultValue={remaining ?? ""} className="w-32 rounded-md border border-neutral-300 px-3 py-2" /></label>}
-        {DELAYED.has(sel) && <label className="block"><span className="mb-1 block font-medium">Seconds (1-300)</span>
-          <input name="delay" type="number" min={1} max={300} required defaultValue={delaySeconds ?? 30} className="w-32 rounded-md border border-neutral-300 px-3 py-2" /></label>}
+        {COUNTED.has(sel) && <FieldLabel label="Number of attempts to affect, then recover (empty = until turned off)"><Input name="remaining" type="number" min={1} max={100} defaultValue={remaining ?? ""} className="!w-32" /></FieldLabel>}
+        {DELAYED.has(sel) && <FieldLabel label="Seconds (1-300)"><Input name="delay" type="number" min={1} max={300} required defaultValue={delaySeconds ?? 30} className="!w-32" /></FieldLabel>}
         <Button type="submit" disabled={pending}>{pending ? "Saving…" : "Save"}</Button>
-        {error && <p role="alert" className="text-red-600">{error}</p>}
+        <FormError>{error}</FormError>
       </form>
     </Card>
   );

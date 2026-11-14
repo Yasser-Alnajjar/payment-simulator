@@ -1,23 +1,54 @@
 @import "tailwindcss";
 
-/* Dark mode: follows the OS setting. Utilities read these theme variables, so remapping them (unlayered, so it wins)
-   darkens every page without touching component classes. The neutral scale is inverted; `white` becomes the card surface. */
+/* Design tokens. Surfaces and lines are semantic (canvas / sidebar / surface / subtle / line); text uses the neutral scale, which is
+   inverted in dark mode so `text-neutral-900` is always the primary text colour. `white` stays remapped for text on filled buttons. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --color-canvas: #ffffff;
+  --color-sidebar: #fafafa;
+  --color-surface: #ffffff;
+  --color-subtle: #f5f5f6;
+  --color-line: #e7e7ea;
+  --color-line-strong: #d4d4d8;
+  --color-accent: #4f46e5;
+  --text-xs: 0.75rem;
+}
+
 :root { color-scheme: light dark; }
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-white: #171717;
-    --color-neutral-50: #0a0a0a;
-    --color-neutral-100: #171717;
-    --color-neutral-200: #262626;
-    --color-neutral-300: #404040;
-    --color-neutral-400: #737373;
-    --color-neutral-500: #a3a3a3;
-    --color-neutral-600: #d4d4d4;
-    --color-neutral-700: #e5e5e5;
-    --color-neutral-900: #fafafa;
-    --color-amber-50: #2a2008; --color-amber-100: #3b2c0a; --color-amber-300: #a16207; --color-amber-800: #fcd34d; --color-amber-900: #fde68a;
-    --color-red-50: #2a1010; --color-red-300: #b91c1c; --color-red-600: #f87171; --color-red-700: #fca5a5; --color-red-800: #fecaca;
-    --color-blue-50: #0f1e3a; --color-blue-800: #bfdbfe;
-    --color-green-50: #0d2a17; --color-green-800: #bbf7d0; --color-green-900: #dcfce7;
+    --color-canvas: #0b0b0d;
+    --color-sidebar: #0f0f11;
+    --color-surface: #131316;
+    --color-subtle: #1a1a1e;
+    --color-line: #26262b;
+    --color-line-strong: #3a3a41;
+    --color-accent: #818cf8;
+
+    --color-white: #0b0b0d;
+    --color-neutral-50: #0f0f11;
+    --color-neutral-100: #1a1a1e;
+    --color-neutral-200: #26262b;
+    --color-neutral-300: #3a3a41;
+    --color-neutral-400: #70707a;
+    --color-neutral-500: #9d9da8;
+    --color-neutral-600: #c4c4cc;
+    --color-neutral-700: #dedee3;
+    --color-neutral-900: #f4f4f6;
+    --color-amber-50: #231b09; --color-amber-100: #33260a; --color-amber-300: #7a5a12; --color-amber-800: #fcd34d; --color-amber-900: #fde68a;
+    --color-red-50: #251012; --color-red-300: #8f2a2f; --color-red-600: #f87171; --color-red-700: #fca5a5; --color-red-800: #fecaca;
+    --color-blue-50: #0f1c36; --color-blue-800: #bfdbfe;
+    --color-purple-50: #1c1230; --color-purple-300: #6d3fb0; --color-purple-800: #e9d5ff; --color-purple-900: #f3e8ff;
+    --color-green-50: #0c2616; --color-green-800: #86efac; --color-green-900: #bbf7d0;
   }
 }
+
+html { -webkit-text-size-adjust: 100%; }
+body { font-feature-settings: "cv11", "ss01"; }
+::selection { background: color-mix(in srgb, var(--color-accent) 25%, transparent); }
+/* Money and counts line up in columns. */
+.tabular { font-variant-numeric: tabular-nums; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+.skeleton { background: linear-gradient(90deg, var(--color-subtle) 25%, var(--color-line) 50%, var(--color-subtle) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; border-radius: 0.375rem; }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation: none; } }
