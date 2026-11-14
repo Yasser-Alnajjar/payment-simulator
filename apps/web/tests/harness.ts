@@ -44,7 +44,8 @@ const FINGERPRINT = {
   authUsers: "select id::text as id, md5(concat_ws('|', id, email, created_at, encrypted_password, email_confirmed_at, raw_app_meta_data)) as fp from auth.users order by id",
 };
 
-export async function createTestDb(opts: { requireS2?: boolean } = {}): Promise<Harness> {
+/** `allowActiveScheduler` is for the deployed end-to-end test only: it needs the real Supabase Cron tick running. All other write tests must run with Cron paused. */
+export async function createTestDb(opts: { requireS2?: boolean; allowActiveScheduler?: boolean } = {}): Promise<Harness> {
   config({ path: path.resolve(__dirname, "../../../.env"), quiet: true });
   resolveTarget(process.env);
   const url = process.env.DIRECT_URL;
@@ -59,7 +60,7 @@ export async function createTestDb(opts: { requireS2?: boolean } = {}): Promise<
     if (identity.projectRef !== EXPECTED_PROJECT_REF) throw new Error("Identity mismatch");
 
     // S4: a running Supabase Cron tick would sweep and claim this run's data concurrently. Refuse unless it is paused.
-    if ((await reader.query("select to_regclass('public.scheduler_leases') is not null as present")).rows[0].present) {
+    if (!opts.allowActiveScheduler && (await reader.query("select to_regclass('public.scheduler_leases') is not null as present")).rows[0].present) {
       const recent = (await reader.query("select count(*)::int n from public.scheduler_leases where name = 'tick' and last_started_at > now() - interval '3 minutes'")).rows[0].n;
       if (recent > 0) throw new Error("The scheduler tick ran in the last 3 minutes: pause the Supabase Cron job (cron.alter_job ... active := false) before running hosted write tests");
     }
