@@ -6,3 +6,5 @@ allowBuilds:
   prisma: true
   "@prisma/engines": true
   dotenv: false
+  # S5: transitive dependency of @scalar/api-reference. Its postinstall only switches Vue 2/3 builds; the default (Vue 3) is what we use. Not run.
+  vue-demi: false

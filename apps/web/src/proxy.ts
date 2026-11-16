@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/healthz"];
+const PUBLIC_PATHS = ["/login", "/register", "/forgot-password", "/reset-password", "/healthz", "/docs", "/openapi.json"];
 const PUBLIC_PREFIXES = ["/auth/"];
 
 /** Refreshes the Supabase session cookie and does an optimistic redirect. Real authorization happens server-side per request. */

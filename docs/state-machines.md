@@ -29,11 +29,11 @@ Delay: 1 to 3600 seconds, default 5. An expired checkout session is not a select
 ## Bounded, documented timing behaviour
 - Session lifetime: `expires_in` 300 to 86400 seconds, default 1800. Every payment is therefore resolved or cancelled no later than the session's expiry.
 - Due work is applied lazily and in time order inside one locked transaction: a scheduled resolution earlier than `expires_at` is applied first; then expiry. If the resolution time is at or after expiry, the session expires first and the payment is cancelled.
-- List endpoints sweep at most 25 due sessions for the calling user before reading. `sweepAll(db, now, limit)` is the bounded global sweep the S4 worker will call. Until S4 exists, nothing resolves a due payment or expires a session unless that session or its owner is read.
+- List endpoints sweep at most 25 due sessions for the calling user before reading. `sweepAll(db, now, limit)` is the bounded global sweep the S4 worker will call. (S2 text) Since S4 the scheduler tick (`docs/scheduler-setup.md`) also applies due resolutions and expiries about once a minute, so settlement no longer depends on someone reading the session.
 - Concurrency: every mutation takes `SELECT ... FOR UPDATE` on the session row first, so attempts, resolution, expiry and cancellation are serialized per session; conditional updates and the partial unique index remain as backstops.
 
 ## Events (outbox)
-Types: `checkout.session.completed|expired|cancelled`, `payment.pending|succeeded|failed|cancelled`.
+Types (S2): `checkout.session.completed|expired|cancelled`, `payment.pending|succeeded|failed|cancelled`. Later phases added `payment_method.created|updated|default_updated|disabled|deleted` (S3) and `webhook_endpoint.test` (S4); the complete list and every `data` shape are in the OpenAPI `Event` schema and `docs/api-overview.md`.
 - Exactly one event per successful transition (and one for creation of a payment, named after its initial status), written in the same database transaction as the change, so an event cannot exist without its change or the reverse.
 - Uniqueness: `(user_id, subject_id, type)` is unique. `subject_id` is the payment id for `payment.*` and the session id for `checkout.session.*`.
 - Ordering: `seq` (identity, creation order); API lists are newest first and paginate with `starting_after`. `seq` is assigned at insert, not at commit, so under concurrency commit order can differ slightly from `seq` order.

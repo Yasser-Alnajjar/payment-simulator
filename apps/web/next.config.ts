@@ -9,6 +9,22 @@ try {
   /* no root .env */
 }
 
+// The public API reference runs a third-party UI library and accepts a pasted API credential, so the browser itself is told to refuse every
+// request that is not to this origin (no CDN, no analytics, no proxy) and to refuse embedding. Verified in a real browser in S5.
+const DOCS_CSP = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${process.env.NODE_ENV === "production" ? "" : " 'unsafe-eval'"}` /* React dev mode needs eval; production does not */,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "worker-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 const config: NextConfig = {
   transpilePackages: ["@sandbox/core", "@sandbox/db"],
   serverExternalPackages: ["pg"],
@@ -23,6 +39,7 @@ const config: NextConfig = {
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         ],
       },
+      { source: "/docs", headers: [{ key: "Content-Security-Policy", value: DOCS_CSP }, { key: "Referrer-Policy", value: "no-referrer" }, { key: "Cache-Control", value: "no-store" }] },
       // The checkout token is in the URL: never leak it through Referer, never cache the page.
       {
         source: "/checkout/:path*",

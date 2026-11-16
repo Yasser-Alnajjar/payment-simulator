@@ -1,0 +1,6 @@
+{
+  "name": "payment-sandbox-examples",
+  "private": true,
+  "type": "module",
+  "description": "Runnable examples. No dependencies: Node 22+ and `npx tsx <file>`."
+}

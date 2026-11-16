@@ -69,3 +69,8 @@ Each attempt records: number, trigger (`scheduled`/`manual`), outcome (`success`
 | `out_of_order` | new deliveries get a random 0..`failure_delay_seconds` delay | yes |
 
 `failure_mode_remaining` (1-100, attempt modes only) makes it "fail N times, then recover": the mode returns to `none` automatically. Only the endpoint's owner can set a mode; there is no global or environment switch.
+
+## See also
+- Getting started and a webhook walkthrough: [`getting-started.md`](getting-started.md) (section 5).
+- Copy-paste verifiers: [`examples/webhooks/`](../examples/webhooks) (Node, Next.js). Tested against the real signer, including rotation, tampering and stale timestamps (`apps/web/tests/webhook-examples.test.ts`).
+- Symptoms and fixes: [`troubleshooting.md`](troubleshooting.md). Event types and `data` shapes: the OpenAPI `Event` schema (`/docs`).

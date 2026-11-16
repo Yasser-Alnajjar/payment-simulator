@@ -8,7 +8,8 @@
     "test": "pnpm -r test",
     "dev": "pnpm --filter @sandbox/web dev",
     "db:generate": "pnpm --filter @sandbox/db generate",
-    "db:status": "pnpm --filter @sandbox/db migrate:status"
+    "db:status": "pnpm --filter @sandbox/db migrate:status",
+    "examples:check": "tsc -p examples"
   },
   "devDependencies": {
     "typescript": "5.9.3"
